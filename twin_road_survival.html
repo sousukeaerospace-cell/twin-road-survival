@@ -1,0 +1,1436 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>ツイン・ロード・サバイバル：ラスト・ディフェンス</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+html,body{width:100%;height:100%;overflow:hidden;background:#111;font-family:'Helvetica Neue',Arial,sans-serif;touch-action:none}
+#gameCanvas{display:block;width:100%;height:100%}
+#ui{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
+#topBar{position:absolute;top:env(safe-area-inset-top,0);left:0;width:100%;display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:linear-gradient(180deg,rgba(0,0,0,0.85) 0%,rgba(0,0,0,0) 100%);z-index:10}
+#topBar>div{color:#fff;font-size:13px;font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8)}
+.gold-text{color:#ffd700!important}
+.wave-text{color:#00e5ff!important}
+#hpBarContainer{position:absolute;top:calc(env(safe-area-inset-top,0px) + 38px);left:12px;right:12px;height:8px;background:rgba(0,0,0,0.6);border-radius:4px;overflow:hidden;z-index:10}
+#hpBar{height:100%;width:100%;background:linear-gradient(90deg,#ff4444,#ff6b6b);border-radius:4px;transition:width 0.3s}
+#hpLabel{position:absolute;top:calc(env(safe-area-inset-top,0px) + 36px);left:12px;color:#fff;font-size:10px;font-weight:bold;z-index:11;text-shadow:0 1px 2px #000}
+#unitPanel{position:absolute;bottom:env(safe-area-inset-bottom,0);left:0;width:100%;background:linear-gradient(0deg,rgba(0,0,0,0.92) 0%,rgba(0,0,0,0.7) 80%,rgba(0,0,0,0) 100%);padding:8px 6px 12px;display:flex;flex-wrap:wrap;justify-content:center;gap:6px;pointer-events:auto;z-index:10}
+.unit-btn{width:62px;height:72px;border:2px solid rgba(255,255,255,0.3);border-radius:10px;background:rgba(30,30,50,0.9);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:bold;cursor:pointer;position:relative;transition:all 0.15s}
+.unit-btn.selected{border-color:#ffd700;background:rgba(60,50,10,0.9);box-shadow:0 0 12px rgba(255,215,0,0.4)}
+.unit-btn .icon{font-size:24px;margin-bottom:2px}
+.unit-btn .cost{color:#ffd700;font-size:9px}
+.unit-btn.disabled{opacity:0.4}
+#itemPanel{position:absolute;right:6px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:8px;pointer-events:auto;z-index:10}
+.item-btn{width:48px;height:48px;border:2px solid rgba(255,100,100,0.5);border-radius:12px;background:rgba(40,10,10,0.85);display:flex;align-items:center;justify-content:center;font-size:22px;cursor:pointer;position:relative;color:#fff}
+.item-btn .count{position:absolute;bottom:-2px;right:-2px;background:#ff4444;color:#fff;font-size:9px;font-weight:bold;border-radius:50%;width:16px;height:16px;display:flex;align-items:center;justify-content:center}
+.item-btn.disabled{opacity:0.3}
+#waveAnnounce{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font-size:32px;font-weight:900;text-shadow:0 0 20px rgba(255,0,0,0.8),0 0 40px rgba(255,0,0,0.4);opacity:0;pointer-events:none;z-index:20;text-align:center;white-space:nowrap}
+#gameOverScreen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:30;pointer-events:auto}
+#gameOverScreen h1{color:#ff4444;font-size:36px;margin-bottom:10px;text-shadow:0 0 20px rgba(255,0,0,0.6)}
+#gameOverScreen .subtitle{color:#aaa;font-size:16px;margin-bottom:30px}
+#gameOverScreen button{padding:14px 40px;font-size:18px;font-weight:bold;background:linear-gradient(135deg,#ffd700,#ff8c00);border:none;border-radius:12px;color:#111;cursor:pointer}
+#victoryScreen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:30;pointer-events:auto}
+#victoryScreen h1{color:#ffd700;font-size:36px;margin-bottom:10px;text-shadow:0 0 20px rgba(255,215,0,0.6)}
+#victoryScreen .subtitle{color:#aaa;font-size:16px;margin-bottom:30px}
+#victoryScreen button{padding:14px 40px;font-size:18px;font-weight:bold;background:linear-gradient(135deg,#00e5ff,#0088ff);border:none;border-radius:12px;color:#fff;cursor:pointer}
+#startScreen{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(180deg,#0a0a1a 0%,#1a0a0a 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:30;pointer-events:auto}
+#startScreen h1{color:#ff4444;font-size:22px;font-weight:900;text-shadow:0 0 30px rgba(255,0,0,0.5);margin-bottom:4px;text-align:center;line-height:1.3}
+#startScreen h2{color:#ffd700;font-size:14px;font-weight:bold;margin-bottom:30px}
+#startScreen p{color:#888;font-size:12px;margin-bottom:20px;text-align:center;padding:0 30px;line-height:1.6}
+#startScreen button{padding:16px 50px;font-size:20px;font-weight:bold;background:linear-gradient(135deg,#ff4444,#ff8800);border:none;border-radius:14px;color:#fff;cursor:pointer;box-shadow:0 0 30px rgba(255,68,68,0.4)}
+#upgradePanel{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(10,10,30,0.95);border:2px solid #ffd700;border-radius:16px;padding:16px;display:none;flex-direction:column;gap:8px;z-index:25;pointer-events:auto;min-width:260px}
+#upgradePanel h3{color:#ffd700;font-size:16px;text-align:center;margin-bottom:4px}
+.upg-btn{padding:10px;background:rgba(255,215,0,0.1);border:1px solid rgba(255,215,0,0.3);border-radius:8px;color:#fff;font-size:12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+.upg-btn:active{background:rgba(255,215,0,0.25)}
+.upg-btn .upg-cost{color:#ffd700;font-weight:bold}
+#closeUpgrade{padding:8px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;font-size:12px;cursor:pointer;text-align:center;margin-top:4px}
+#laneIndicator{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:90%;display:flex;justify-content:space-around;pointer-events:auto;z-index:5;display:none}
+.lane-tap{width:45%;height:200px;border:2px dashed rgba(255,255,255,0.3);border-radius:12px;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.5);font-size:14px;font-weight:bold}
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<div id="ui">
+<div id="topBar">
+<div class="wave-text" id="waveInfo">WAVE 1/10</div>
+<div class="gold-text" id="goldInfo">💰 100</div>
+<div id="scoreInfo">SCORE: 0</div>
+</div>
+<div id="hpLabel">BASE HP</div>
+<div id="hpBarContainer"><div id="hpBar"></div></div>
+
+<div id="waveAnnounce"></div>
+
+<div id="itemPanel">
+<div class="item-btn" data-item="airstrike" ontouchstart="useItem('airstrike')">💥<div class="count" id="airCount">2</div></div>
+<div class="item-btn" data-item="heal" ontouchstart="useItem('heal')">💚<div class="count" id="healCount">2</div></div>
+<div class="item-btn" data-item="shield" ontouchstart="useItem('shield')">🛡<div class="count" id="shieldCount">1</div></div>
+<div class="item-btn" data-item="portal" ontouchstart="useItem('portal')">🌀<div class="count" id="portalCount">1</div></div>
+</div>
+
+<div id="unitPanel"></div>
+
+<div id="upgradePanel">
+<h3>⬆ アップグレード</h3>
+<div id="upgradeList"></div>
+<div id="closeUpgrade" ontouchstart="closeUpgrade()">閉じる</div>
+</div>
+
+<div id="startScreen">
+<h1>ツイン・ロード・サバイバル</h1>
+<h2>〜 ラスト・ディフェンス 〜</h2>
+<p>2つの道路を守り抜け！<br>兵士を配置して敵の大群を撃退せよ！<br><br>兵士を選んで道路をタップで配置<br>アイテムをタップして使用</p>
+<button ontouchstart="startGame()" onclick="startGame()">⚔ 出撃 ⚔</button>
+</div>
+
+<div id="gameOverScreen">
+<h1>💀 防衛失敗 💀</h1>
+<div class="subtitle" id="goSubtitle">WAVE 3 で敗北</div>
+<button ontouchstart="restartGame()" onclick="restartGame()">再挑戦</button>
+</div>
+
+<div id="victoryScreen">
+<h1>🏆 勝利！ 🏆</h1>
+<div class="subtitle" id="vicSubtitle">全ウェーブクリア！</div>
+<button ontouchstart="restartGame()" onclick="restartGame()">もう一度</button>
+</div>
+</div>
+
+<script>
+// ===== GAME ENGINE =====
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let W, H, scale;
+let gameState = 'start'; // start, playing, paused, gameover, victory
+let lastTime = 0;
+let dt = 0;
+
+// Audio context for SFX
+let audioCtx = null;
+function initAudio() {
+  try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+}
+function playSfx(freq, dur, type='square', vol=0.08) {
+  if (!audioCtx) return;
+  try {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = type;
+    o.frequency.value = freq;
+    g.gain.value = vol;
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    o.connect(g);
+    g.connect(audioCtx.destination);
+    o.start();
+    o.stop(audioCtx.currentTime + dur);
+  } catch(e) {}
+}
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  scale = Math.min(W / 390, H / 844);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ===== GAME STATE =====
+let gold = 100;
+let score = 0;
+let baseHP = 100;
+let maxBaseHP = 100;
+let currentWave = 0;
+let totalWaves = 10;
+let waveActive = false;
+let waveTimer = 0;
+let waveDelay = 3;
+let enemiesSpawned = 0;
+let enemiesInWave = 0;
+let spawnTimer = 0;
+let selectedUnit = null;
+let allies = [];
+let enemies = [];
+let projectiles = [];
+let particles = [];
+let damageNumbers = [];
+let effects = [];
+let items = { airstrike: 2, heal: 2, shield: 1, portal: 1 };
+let activeItem = null;
+let shieldActive = false;
+let shieldTimer = 0;
+let upgrades = { atk: 0, hp: 0, speed: 0 };
+
+// ===== ISOMETRIC HELPERS =====
+// Road runs from top to bottom in 2.5D perspective
+const ROAD_TOP_Y = 0.12;      // fraction of H
+const ROAD_BOTTOM_Y = 0.78;   // fraction of H
+const ROAD_TOP_WIDTH = 0.35;   // narrow at top
+const ROAD_BOTTOM_WIDTH = 0.85; // wide at bottom
+const LANE_COUNT = 2;
+
+function getRoadBounds(yFrac) {
+  const t = (yFrac - ROAD_TOP_Y) / (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+  const tc = Math.max(0, Math.min(1, t));
+  const w = (ROAD_TOP_WIDTH + (ROAD_BOTTOM_WIDTH - ROAD_TOP_WIDTH) * tc) * W;
+  const cx = W / 2;
+  return { left: cx - w / 2, right: cx + w / 2, width: w, cx: cx };
+}
+
+function getLaneX(lane, yFrac) {
+  const b = getRoadBounds(yFrac);
+  const laneW = b.width / LANE_COUNT;
+  return b.left + laneW * (lane + 0.5);
+}
+
+function getScaleAtY(yFrac) {
+  const t = (yFrac - ROAD_TOP_Y) / (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+  return 0.5 + Math.max(0, Math.min(1, t)) * 0.7;
+}
+
+function yFracToScreen(yFrac) {
+  return yFrac * H;
+}
+
+// ===== UNIT DEFINITIONS =====
+const UNIT_TYPES = {
+  infantry: { name: '歩兵', icon: '🗡', color: '#44ff44', cost: 15, hp: 80, atk: 12, range: 40, atkSpeed: 0.8, speed: 0 },
+  archer: { name: '射手', icon: '🏹', color: '#ffaa00', cost: 30, hp: 60, atk: 18, range: 180, atkSpeed: 1.2, speed: 0 },
+  mage: { name: '魔法', icon: '🔮', color: '#aa44ff', cost: 50, hp: 50, atk: 25, range: 150, atkSpeed: 1.8, speed: 0, aoe: 50 },
+  tank: { name: 'タンク', icon: '🛡', color: '#4488ff', cost: 40, hp: 200, atk: 8, range: 35, atkSpeed: 1.0, speed: 0 },
+  hero: { name: 'ヒーロー', icon: '⚔', color: '#ff4444', cost: 100, hp: 300, atk: 40, range: 60, atkSpeed: 0.7, speed: 0 }
+};
+
+// ===== ENEMY DEFINITIONS =====
+const ENEMY_TYPES = {
+  zombie: { name: 'ゾンビ', color: '#88cc44', hp: 40, atk: 5, speed: 20, reward: 5, size: 1 },
+  runner: { name: 'ランナー', color: '#ffcc00', hp: 25, atk: 3, speed: 45, reward: 7, size: 0.8 },
+  brute: { name: 'ブルート', color: '#cc4444', hp: 100, atk: 12, speed: 12, reward: 12, size: 1.3 },
+  ghost: { name: 'ゴースト', color: '#aaaaff', hp: 55, atk: 8, speed: 28, reward: 10, size: 0.9 },
+  bomber: { name: 'ボマー', color: '#ff8800', hp: 35, atk: 20, speed: 22, reward: 8, size: 1.1 },
+  boss: { name: 'ボス', color: '#ff0044', hp: 800, atk: 25, speed: 8, reward: 100, size: 2.2, isBoss: true }
+};
+
+// ===== WAVE DATA =====
+const WAVES = [
+  { enemies: [{ type: 'zombie', count: 8 }], delay: 1.2 },
+  { enemies: [{ type: 'zombie', count: 6 }, { type: 'runner', count: 4 }], delay: 1.0 },
+  { enemies: [{ type: 'zombie', count: 8 }, { type: 'runner', count: 5 }, { type: 'brute', count: 2 }], delay: 0.9 },
+  { enemies: [{ type: 'runner', count: 8 }, { type: 'ghost', count: 4 }], delay: 0.8 },
+  { enemies: [{ type: 'zombie', count: 6 }, { type: 'brute', count: 5 }, { type: 'bomber', count: 3 }], delay: 0.8 },
+  { enemies: [{ type: 'ghost', count: 8 }, { type: 'bomber', count: 5 }, { type: 'brute', count: 3 }], delay: 0.7 },
+  { enemies: [{ type: 'runner', count: 10 }, { type: 'brute', count: 5 }, { type: 'ghost', count: 5 }], delay: 0.6 },
+  { enemies: [{ type: 'brute', count: 8 }, { type: 'bomber', count: 6 }, { type: 'ghost', count: 6 }], delay: 0.6 },
+  { enemies: [{ type: 'zombie', count: 10 }, { type: 'runner', count: 8 }, { type: 'brute', count: 6 }, { type: 'bomber', count: 4 }, { type: 'ghost', count: 4 }], delay: 0.5 },
+  { enemies: [{ type: 'brute', count: 6 }, { type: 'bomber', count: 4 }, { type: 'ghost', count: 4 }, { type: 'boss', count: 1 }], delay: 0.7 }
+];
+
+// ===== BUILD UNIT PANEL =====
+function buildUnitPanel() {
+  const panel = document.getElementById('unitPanel');
+  panel.innerHTML = '';
+  for (const [key, u] of Object.entries(UNIT_TYPES)) {
+    const btn = document.createElement('div');
+    btn.className = 'unit-btn' + (gold < u.cost ? ' disabled' : '') + (selectedUnit === key ? ' selected' : '');
+    btn.dataset.unit = key;
+    btn.innerHTML = `<div class="icon">${u.icon}</div><div>${u.name}</div><div class="cost">💰${u.cost}</div>`;
+    btn.addEventListener('touchstart', (e) => { e.preventDefault(); selectUnit(key); });
+    btn.addEventListener('click', (e) => { e.preventDefault(); selectUnit(key); });
+    panel.appendChild(btn);
+  }
+  // Upgrade button
+  const ubtn = document.createElement('div');
+  ubtn.className = 'unit-btn';
+  ubtn.style.borderColor = 'rgba(0,229,255,0.5)';
+  ubtn.innerHTML = `<div class="icon">⬆</div><div>強化</div><div class="cost" style="color:#0ef">MENU</div>`;
+  ubtn.addEventListener('touchstart', (e) => { e.preventDefault(); showUpgradePanel(); });
+  ubtn.addEventListener('click', (e) => { e.preventDefault(); showUpgradePanel(); });
+  panel.appendChild(ubtn);
+}
+
+function selectUnit(key) {
+  if (selectedUnit === key) { selectedUnit = null; }
+  else { selectedUnit = key; activeItem = null; }
+  buildUnitPanel();
+  playSfx(800, 0.05, 'sine');
+}
+
+// ===== UPGRADES =====
+function showUpgradePanel() {
+  const panel = document.getElementById('upgradePanel');
+  const list = document.getElementById('upgradeList');
+  list.innerHTML = '';
+  const upgData = [
+    { key: 'atk', name: '攻撃力 +15%', cost: 30 + upgrades.atk * 20, desc: `Lv.${upgrades.atk}` },
+    { key: 'hp', name: 'HP +20%', cost: 30 + upgrades.hp * 20, desc: `Lv.${upgrades.hp}` },
+    { key: 'speed', name: '攻撃速度 +10%', cost: 40 + upgrades.speed * 25, desc: `Lv.${upgrades.speed}` }
+  ];
+  for (const u of upgData) {
+    const btn = document.createElement('div');
+    btn.className = 'upg-btn';
+    btn.innerHTML = `<span>${u.name} (${u.desc})</span><span class="upg-cost">💰${u.cost}</span>`;
+    btn.addEventListener('touchstart', (e) => { e.preventDefault(); buyUpgrade(u.key, u.cost); });
+    btn.addEventListener('click', (e) => { e.preventDefault(); buyUpgrade(u.key, u.cost); });
+    list.appendChild(btn);
+  }
+  panel.style.display = 'flex';
+}
+
+function closeUpgrade() {
+  document.getElementById('upgradePanel').style.display = 'none';
+}
+
+function buyUpgrade(key, cost) {
+  if (gold >= cost) {
+    gold -= cost;
+    upgrades[key]++;
+    // Apply to existing allies
+    allies.forEach(a => applyUpgrades(a));
+    showUpgradePanel();
+    updateUI();
+    playSfx(1200, 0.1, 'sine');
+  }
+}
+
+function applyUpgrades(ally) {
+  const base = UNIT_TYPES[ally.type];
+  ally.atk = base.atk * (1 + upgrades.atk * 0.15);
+  ally.maxHp = base.hp * (1 + upgrades.hp * 0.2);
+  ally.hp = Math.min(ally.hp, ally.maxHp);
+  ally.atkSpeed = base.atkSpeed / (1 + upgrades.speed * 0.1);
+}
+
+// ===== ITEMS =====
+function useItem(type) {
+  if (items[type] <= 0 || gameState !== 'playing') return;
+
+  if (type === 'heal') {
+    // Instant: heal all allies and base
+    baseHP = Math.min(maxBaseHP, baseHP + 30);
+    allies.forEach(a => { a.hp = Math.min(a.maxHp, a.hp + a.maxHp * 0.4); });
+    items.heal--;
+    spawnEffect('heal');
+    playSfx(600, 0.2, 'sine');
+  } else if (type === 'shield') {
+    shieldActive = true;
+    shieldTimer = 8;
+    items.shield--;
+    playSfx(400, 0.3, 'triangle');
+  } else if (type === 'airstrike') {
+    // Damage all enemies
+    enemies.forEach(e => {
+      const dmg = 60 + currentWave * 10;
+      e.hp -= dmg;
+      spawnDmgNum(getLaneX(e.lane, e.yFrac), yFracToScreen(e.yFrac), dmg, '#ff8800', true);
+      spawnExplosion(getLaneX(e.lane, e.yFrac), yFracToScreen(e.yFrac), '#ff4400');
+    });
+    items.airstrike--;
+    screenShake(10, 0.5);
+    playSfx(150, 0.4, 'sawtooth', 0.12);
+  } else if (type === 'portal') {
+    // Push back all enemies
+    enemies.forEach(e => { e.yFrac = Math.max(ROAD_TOP_Y, e.yFrac - 0.15); });
+    items.portal--;
+    spawnEffect('portal');
+    playSfx(300, 0.3, 'sine');
+  }
+  updateItemUI();
+}
+
+function updateItemUI() {
+  document.getElementById('airCount').textContent = items.airstrike;
+  document.getElementById('healCount').textContent = items.heal;
+  document.getElementById('shieldCount').textContent = items.shield;
+  document.getElementById('portalCount').textContent = items.portal;
+  document.querySelectorAll('.item-btn').forEach(btn => {
+    const type = btn.dataset.item;
+    btn.classList.toggle('disabled', items[type] <= 0);
+  });
+}
+
+// ===== TOUCH / CLICK HANDLING =====
+canvas.addEventListener('touchstart', handleTouch, { passive: false });
+canvas.addEventListener('click', handleClick);
+
+function handleTouch(e) {
+  e.preventDefault();
+  const t = e.touches[0];
+  handleInput(t.clientX, t.clientY);
+}
+
+function handleClick(e) {
+  handleInput(e.clientX, e.clientY);
+}
+
+function handleInput(x, y) {
+  if (gameState !== 'playing') return;
+  if (!selectedUnit) return;
+
+  const unit = UNIT_TYPES[selectedUnit];
+  if (gold < unit.cost) return;
+
+  // Determine lane based on x position
+  const lane = x < W / 2 ? 0 : 1;
+
+  // Determine y position - place near bottom area for defense
+  let yFrac = y / H;
+  yFrac = Math.max(ROAD_TOP_Y + 0.15, Math.min(ROAD_BOTTOM_Y - 0.05, yFrac));
+
+  // Check minimum distance from other allies
+  const minDist = 25 * getScaleAtY(yFrac);
+  const tooClose = allies.some(a => a.lane === lane && Math.abs(yFracToScreen(a.yFrac) - yFracToScreen(yFrac)) < minDist);
+  if (tooClose) return;
+
+  // Place unit
+  gold -= unit.cost;
+  const ally = {
+    type: selectedUnit,
+    lane: lane,
+    yFrac: yFrac,
+    hp: unit.hp * (1 + upgrades.hp * 0.2),
+    maxHp: unit.hp * (1 + upgrades.hp * 0.2),
+    atk: unit.atk * (1 + upgrades.atk * 0.15),
+    range: unit.range,
+    atkSpeed: unit.atkSpeed / (1 + upgrades.speed * 0.1),
+    atkTimer: 0,
+    aoe: unit.aoe || 0,
+    color: unit.color,
+    icon: unit.icon,
+    animPhase: 0
+  };
+  allies.push(ally);
+
+  // Placement effect
+  spawnExplosion(getLaneX(lane, yFrac), yFracToScreen(yFrac), unit.color);
+  playSfx(500, 0.1, 'sine');
+
+  updateUI();
+  buildUnitPanel();
+}
+
+// ===== ENEMY SPAWNING =====
+let spawnQueue = [];
+
+function startWave(waveIdx) {
+  currentWave = waveIdx + 1;
+  const wave = WAVES[waveIdx];
+  spawnQueue = [];
+  for (const eg of wave.enemies) {
+    for (let i = 0; i < eg.count; i++) {
+      spawnQueue.push(eg.type);
+    }
+  }
+  // Shuffle
+  for (let i = spawnQueue.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [spawnQueue[i], spawnQueue[j]] = [spawnQueue[j], spawnQueue[i]];
+  }
+  enemiesInWave = spawnQueue.length;
+  enemiesSpawned = 0;
+  spawnTimer = 0;
+  waveActive = true;
+
+  announceWave(waveIdx);
+  updateUI();
+}
+
+function spawnEnemy(type) {
+  const def = ENEMY_TYPES[type];
+  const waveScale = 1 + (currentWave - 1) * 0.12;
+  const lane = Math.random() < 0.5 ? 0 : 1;
+  const e = {
+    type: type,
+    lane: lane,
+    yFrac: ROAD_TOP_Y - 0.03,
+    hp: def.hp * waveScale,
+    maxHp: def.hp * waveScale,
+    atk: def.atk * waveScale,
+    speed: def.speed,
+    reward: def.reward,
+    color: def.color,
+    size: def.size,
+    isBoss: def.isBoss || false,
+    atkTimer: 0,
+    animPhase: Math.random() * Math.PI * 2,
+    flashTimer: 0
+  };
+  enemies.push(e);
+
+  if (e.isBoss) {
+    announceBoss();
+    screenShake(15, 1);
+  }
+}
+
+// ===== ANNOUNCEMENTS =====
+let announceAlpha = 0;
+let announceText = '';
+let announceTimer = 0;
+
+function announceWave(idx) {
+  if (idx === WAVES.length - 1) {
+    announceText = '⚠ FINAL WAVE ⚠\nボス出現！';
+  } else {
+    announceText = `WAVE ${idx + 1}`;
+  }
+  announceAlpha = 1;
+  announceTimer = 2;
+}
+
+function announceBoss() {
+  announceText = '💀 BOSS 💀';
+  announceAlpha = 1;
+  announceTimer = 2.5;
+  screenShake(20, 1);
+}
+
+// ===== SCREEN SHAKE =====
+let shakeAmount = 0;
+let shakeDuration = 0;
+let shakeX = 0, shakeY = 0;
+
+function screenShake(amount, duration) {
+  shakeAmount = amount;
+  shakeDuration = duration;
+}
+
+// ===== PARTICLE SYSTEM =====
+function spawnDmgNum(x, y, amount, color, isCrit) {
+  damageNumbers.push({
+    x: x + (Math.random() - 0.5) * 20,
+    y: y - 10,
+    amount: Math.floor(amount),
+    color: color || '#fff',
+    isCrit: isCrit || false,
+    life: 1.2,
+    maxLife: 1.2,
+    vy: -60,
+    scale: isCrit ? 2.0 : 1.0
+  });
+}
+
+function spawnExplosion(x, y, color, count) {
+  const n = count || 12;
+  for (let i = 0; i < n; i++) {
+    const angle = (Math.PI * 2 / n) * i + Math.random() * 0.5;
+    const speed = 40 + Math.random() * 80;
+    particles.push({
+      x: x, y: y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 30,
+      color: color,
+      life: 0.5 + Math.random() * 0.4,
+      maxLife: 0.9,
+      size: 2 + Math.random() * 4
+    });
+  }
+}
+
+function spawnEffect(type) {
+  effects.push({ type: type, timer: 1.0, maxTimer: 1.0 });
+}
+
+// ===== PROJECTILE SYSTEM =====
+function fireProjectile(from, to, dmg, color, isAoe, aoeRadius) {
+  const fx = getLaneX(from.lane, from.yFrac);
+  const fy = yFracToScreen(from.yFrac);
+  const tx = getLaneX(to.lane, to.yFrac);
+  const ty = yFracToScreen(to.yFrac);
+  projectiles.push({
+    x: fx, y: fy, tx: tx, ty: ty,
+    target: to,
+    dmg: dmg,
+    color: color,
+    speed: 400,
+    isAoe: isAoe || false,
+    aoeRadius: aoeRadius || 0,
+    trail: []
+  });
+}
+
+// ===== UPDATE =====
+function update(dt) {
+  if (gameState !== 'playing') return;
+
+  // Shield timer
+  if (shieldActive) {
+    shieldTimer -= dt;
+    if (shieldTimer <= 0) shieldActive = false;
+  }
+
+  // Screen shake
+  if (shakeDuration > 0) {
+    shakeDuration -= dt;
+    shakeX = (Math.random() - 0.5) * shakeAmount * 2;
+    shakeY = (Math.random() - 0.5) * shakeAmount * 2;
+    shakeAmount *= 0.95;
+  } else {
+    shakeX = 0; shakeY = 0;
+  }
+
+  // Announcement
+  if (announceTimer > 0) {
+    announceTimer -= dt;
+    announceAlpha = Math.min(1, announceTimer * 2);
+  }
+
+  // Wave management
+  if (!waveActive && enemies.length === 0) {
+    waveDelay -= dt;
+    if (waveDelay <= 0) {
+      if (currentWave < totalWaves) {
+        startWave(currentWave);
+        waveDelay = 3;
+      } else {
+        gameState = 'victory';
+        document.getElementById('vicSubtitle').textContent = `スコア: ${score} | ゴールド: ${gold}`;
+        document.getElementById('victoryScreen').style.display = 'flex';
+        return;
+      }
+    }
+  }
+
+  // Spawn enemies
+  if (waveActive && spawnQueue.length > 0) {
+    spawnTimer -= dt;
+    if (spawnTimer <= 0) {
+      spawnEnemy(spawnQueue.shift());
+      enemiesSpawned++;
+      spawnTimer = WAVES[currentWave - 1].delay;
+    }
+  }
+  if (waveActive && spawnQueue.length === 0 && enemies.length === 0) {
+    waveActive = false;
+    waveDelay = 3;
+    // Bonus gold between waves
+    gold += 10 + currentWave * 5;
+    // Bonus items every 3 waves
+    if (currentWave % 3 === 0) {
+      items.airstrike++;
+      items.heal++;
+    }
+    if (currentWave % 5 === 0) {
+      items.shield++;
+      items.portal++;
+    }
+    updateItemUI();
+    buildUnitPanel();
+  }
+
+  // Update enemies
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+    e.animPhase += dt * 3;
+    e.flashTimer = Math.max(0, e.flashTimer - dt);
+
+    // Move toward bottom
+    const moveSpeed = e.speed * dt / H;
+    e.yFrac += moveSpeed;
+
+    // Attack nearest ally in same lane
+    const nearestAlly = findNearestAlly(e);
+    if (nearestAlly && getDistY(e, nearestAlly) < 40 * getScaleAtY(e.yFrac)) {
+      e.atkTimer -= dt;
+      if (e.atkTimer <= 0) {
+        nearestAlly.hp -= e.atk;
+        spawnDmgNum(getLaneX(nearestAlly.lane, nearestAlly.yFrac), yFracToScreen(nearestAlly.yFrac), e.atk, '#ff4444', false);
+        e.atkTimer = 1.0;
+        // Stop moving when attacking
+        e.yFrac -= moveSpeed;
+      }
+    }
+
+    // Reached base
+    if (e.yFrac >= ROAD_BOTTOM_Y + 0.02) {
+      const dmg = shieldActive ? e.atk * 0.3 : e.atk;
+      baseHP -= dmg;
+      spawnExplosion(getLaneX(e.lane, ROAD_BOTTOM_Y), yFracToScreen(ROAD_BOTTOM_Y), '#ff0000', 8);
+      enemies.splice(i, 1);
+      screenShake(5, 0.2);
+      if (baseHP <= 0) {
+        baseHP = 0;
+        gameState = 'gameover';
+        document.getElementById('goSubtitle').textContent = `WAVE ${currentWave} で敗北 | スコア: ${score}`;
+        document.getElementById('gameOverScreen').style.display = 'flex';
+      }
+      continue;
+    }
+
+    // Dead
+    if (e.hp <= 0) {
+      gold += e.reward;
+      score += e.reward * 10;
+      spawnExplosion(getLaneX(e.lane, e.yFrac), yFracToScreen(e.yFrac), e.color, e.isBoss ? 30 : 15);
+      if (e.isBoss) screenShake(15, 0.8);
+      playSfx(200 + Math.random() * 100, 0.15, 'square', 0.06);
+      enemies.splice(i, 1);
+      updateUI();
+      buildUnitPanel();
+    }
+  }
+
+  // Update allies
+  for (let i = allies.length - 1; i >= 0; i--) {
+    const a = allies[i];
+    a.animPhase += dt * 2;
+    a.atkTimer -= dt;
+
+    // Find target enemy
+    const target = findNearestEnemy(a);
+    if (target && a.atkTimer <= 0) {
+      const dmg = a.atk;
+      const isCrit = Math.random() < 0.15;
+      const finalDmg = isCrit ? dmg * 2 : dmg;
+
+      if (a.range > 50) {
+        // Ranged: fire projectile
+        fireProjectile(a, target, finalDmg, a.color, a.aoe > 0, a.aoe);
+      } else {
+        // Melee: instant damage
+        target.hp -= finalDmg;
+        target.flashTimer = 0.1;
+        spawnDmgNum(getLaneX(target.lane, target.yFrac), yFracToScreen(target.yFrac), finalDmg, isCrit ? '#ff0' : '#fff', isCrit);
+        if (isCrit) playSfx(1000, 0.08, 'sine');
+      }
+      a.atkTimer = a.atkSpeed;
+      playSfx(300 + Math.random() * 200, 0.05, 'square', 0.04);
+    }
+
+    // Dead ally
+    if (a.hp <= 0) {
+      spawnExplosion(getLaneX(a.lane, a.yFrac), yFracToScreen(a.yFrac), '#888', 8);
+      allies.splice(i, 1);
+    }
+  }
+
+  // Update projectiles
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const p = projectiles[i];
+    const dx = p.tx - p.x;
+    const dy = p.ty - p.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    p.trail.push({ x: p.x, y: p.y });
+    if (p.trail.length > 8) p.trail.shift();
+
+    if (dist < 8) {
+      // Hit
+      if (p.isAoe) {
+        enemies.forEach(e => {
+          const ex = getLaneX(e.lane, e.yFrac);
+          const ey = yFracToScreen(e.yFrac);
+          const d = Math.sqrt((ex - p.x) ** 2 + (ey - p.y) ** 2);
+          if (d < p.aoeRadius) {
+            const isCrit = Math.random() < 0.1;
+            const dmg = isCrit ? p.dmg * 1.5 : p.dmg * 0.7;
+            e.hp -= dmg;
+            e.flashTimer = 0.1;
+            spawnDmgNum(ex, ey, dmg, isCrit ? '#ff0' : p.color, isCrit);
+          }
+        });
+        spawnExplosion(p.x, p.y, p.color, 10);
+      } else {
+        if (p.target && enemies.includes(p.target)) {
+          const isCrit = Math.random() < 0.15;
+          const dmg = isCrit ? p.dmg * 2 : p.dmg;
+          p.target.hp -= dmg;
+          p.target.flashTimer = 0.1;
+          spawnDmgNum(p.tx, p.ty, dmg, isCrit ? '#ff0' : '#fff', isCrit);
+          if (isCrit) playSfx(1000, 0.08, 'sine');
+        }
+      }
+      projectiles.splice(i, 1);
+    } else {
+      const s = p.speed * dt / dist;
+      p.x += dx * s;
+      p.y += dy * s;
+    }
+  }
+
+  // Update particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += 120 * dt;
+    p.life -= dt;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+
+  // Update damage numbers
+  for (let i = damageNumbers.length - 1; i >= 0; i--) {
+    const d = damageNumbers[i];
+    d.y += d.vy * dt;
+    d.vy *= 0.95;
+    d.life -= dt;
+    if (d.life <= 0) damageNumbers.splice(i, 1);
+  }
+
+  // Update effects
+  for (let i = effects.length - 1; i >= 0; i--) {
+    effects[i].timer -= dt;
+    if (effects[i].timer <= 0) effects.splice(i, 1);
+  }
+
+  updateUI();
+}
+
+function findNearestEnemy(ally) {
+  let best = null, bestDist = Infinity;
+  for (const e of enemies) {
+    if (e.lane !== ally.lane && ally.range < 100) continue; // Melee only same lane
+    const dy = Math.abs(yFracToScreen(e.yFrac) - yFracToScreen(ally.yFrac));
+    const dx = Math.abs(getLaneX(e.lane, e.yFrac) - getLaneX(ally.lane, ally.yFrac));
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < ally.range * getScaleAtY(ally.yFrac) && d < bestDist) {
+      bestDist = d;
+      best = e;
+    }
+  }
+  return best;
+}
+
+function findNearestAlly(enemy) {
+  let best = null, bestDist = Infinity;
+  for (const a of allies) {
+    if (a.lane !== enemy.lane) continue;
+    const d = yFracToScreen(a.yFrac) - yFracToScreen(enemy.yFrac);
+    if (d > 0 && d < bestDist) {
+      bestDist = d;
+      best = a;
+    }
+  }
+  return best;
+}
+
+function getDistY(a, b) {
+  return Math.abs(yFracToScreen(a.yFrac) - yFracToScreen(b.yFrac));
+}
+
+// ===== DRAW =====
+function draw() {
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  // Sky gradient
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+  skyGrad.addColorStop(0, '#0a0a2a');
+  skyGrad.addColorStop(0.3, '#1a1035');
+  skyGrad.addColorStop(1, '#2a1520');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(-20, -20, W + 40, H + 40);
+
+  // Stars
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  for (let i = 0; i < 30; i++) {
+    const sx = ((i * 137.5 + 50) % W);
+    const sy = ((i * 87.3 + 20) % (H * 0.3));
+    ctx.fillRect(sx, sy, 1.5, 1.5);
+  }
+
+  // Draw road (isometric perspective)
+  drawRoad();
+
+  // Draw base (defense line)
+  drawBase();
+
+  // Draw shield effect
+  if (shieldActive) drawShield();
+
+  // Draw enemies (sorted by yFrac for depth)
+  const sortedEnemies = [...enemies].sort((a, b) => a.yFrac - b.yFrac);
+  for (const e of sortedEnemies) drawEnemy(e);
+
+  // Draw allies (sorted by yFrac)
+  const sortedAllies = [...allies].sort((a, b) => a.yFrac - b.yFrac);
+  for (const a of sortedAllies) drawAlly(a);
+
+  // Draw projectiles
+  for (const p of projectiles) drawProjectile(p);
+
+  // Draw particles
+  for (const p of particles) drawParticle(p);
+
+  // Draw damage numbers
+  for (const d of damageNumbers) drawDmgNum(d);
+
+  // Draw effects
+  for (const e of effects) drawEffect(e);
+
+  // Draw announcement
+  if (announceTimer > 0) drawAnnouncement();
+
+  ctx.restore();
+}
+
+function drawRoad() {
+  // Draw road surface with perspective
+  const steps = 40;
+  for (let i = 0; i < steps; i++) {
+    const t0 = i / steps;
+    const t1 = (i + 1) / steps;
+    const y0Frac = ROAD_TOP_Y + t0 * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+    const y1Frac = ROAD_TOP_Y + t1 * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+    const b0 = getRoadBounds(y0Frac);
+    const b1 = getRoadBounds(y1Frac);
+    const sy0 = yFracToScreen(y0Frac);
+    const sy1 = yFracToScreen(y1Frac);
+
+    // Road surface
+    const darkness = 0.3 + t0 * 0.15;
+    ctx.fillStyle = `rgb(${Math.floor(60 * darkness)},${Math.floor(62 * darkness)},${Math.floor(68 * darkness)})`;
+    ctx.beginPath();
+    ctx.moveTo(b0.left, sy0);
+    ctx.lineTo(b0.right, sy0);
+    ctx.lineTo(b1.right, sy1);
+    ctx.lineTo(b1.left, sy1);
+    ctx.closePath();
+    ctx.fill();
+
+    // Road edges
+    ctx.strokeStyle = `rgba(255,200,50,${0.3 + t0 * 0.2})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(b0.left, sy0);
+    ctx.lineTo(b1.left, sy1);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(b0.right, sy0);
+    ctx.lineTo(b1.right, sy1);
+    ctx.stroke();
+  }
+
+  // Center divider (dashed)
+  for (let i = 0; i < 20; i++) {
+    const t = i / 20;
+    const yFrac = ROAD_TOP_Y + t * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+    if (i % 2 === 0) {
+      const b = getRoadBounds(yFrac);
+      const y = yFracToScreen(yFrac);
+      const nextYFrac = ROAD_TOP_Y + (t + 0.05) * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+      const nextY = yFracToScreen(nextYFrac);
+      const bNext = getRoadBounds(nextYFrac);
+
+      ctx.strokeStyle = `rgba(255,255,255,${0.4 + t * 0.3})`;
+      ctx.lineWidth = 2 + t * 2;
+      ctx.beginPath();
+      ctx.moveTo(b.cx, y);
+      ctx.lineTo(bNext.cx, nextY);
+      ctx.stroke();
+    }
+  }
+
+  // Lane markers (dashed white lines in each lane)
+  for (let lane = 0; lane < 2; lane++) {
+    for (let i = 0; i < 15; i++) {
+      const t = i / 15;
+      if (i % 2 !== 0) continue;
+      const yFrac = ROAD_TOP_Y + t * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+      const nextT = (i + 1) / 15;
+      const nextYFrac = ROAD_TOP_Y + nextT * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+
+      const x1 = getLaneX(lane, yFrac);
+      const x2 = getLaneX(lane, nextYFrac);
+      const y1 = yFracToScreen(yFrac);
+      const y2 = yFracToScreen(nextYFrac);
+
+      ctx.strokeStyle = `rgba(255,255,255,${0.1 + t * 0.15})`;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 6]);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  // Side scenery (buildings/barriers)
+  for (let i = 0; i < 8; i++) {
+    const t = i / 8;
+    const yFrac = ROAD_TOP_Y + t * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+    const b = getRoadBounds(yFrac);
+    const sc = getScaleAtY(yFrac);
+    const y = yFracToScreen(yFrac);
+
+    // Left barrier
+    ctx.fillStyle = `rgba(80,80,100,${0.5 + t * 0.3})`;
+    const bw = 15 * sc;
+    const bh = 20 * sc;
+    ctx.fillRect(b.left - bw - 5, y - bh, bw, bh);
+    ctx.fillStyle = `rgba(100,100,130,${0.3 + t * 0.2})`;
+    ctx.fillRect(b.left - bw - 5, y - bh, bw, 3);
+
+    // Right barrier
+    ctx.fillStyle = `rgba(80,80,100,${0.5 + t * 0.3})`;
+    ctx.fillRect(b.right + 5, y - bh, bw, bh);
+    ctx.fillStyle = `rgba(100,100,130,${0.3 + t * 0.2})`;
+    ctx.fillRect(b.right + 5, y - bh, bw, 3);
+  }
+}
+
+function drawBase() {
+  const yFrac = ROAD_BOTTOM_Y;
+  const b = getRoadBounds(yFrac);
+  const y = yFracToScreen(yFrac);
+
+  // Defense line glow
+  const glow = ctx.createLinearGradient(b.left, y - 15, b.left, y + 15);
+  glow.addColorStop(0, 'rgba(0,150,255,0)');
+  glow.addColorStop(0.5, `rgba(0,150,255,${0.3 + Math.sin(Date.now() / 500) * 0.15})`);
+  glow.addColorStop(1, 'rgba(0,150,255,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(b.left, y - 15, b.width, 30);
+
+  // Defense wall
+  ctx.fillStyle = '#334';
+  ctx.fillRect(b.left, y - 4, b.width, 8);
+  ctx.fillStyle = '#556';
+  ctx.fillRect(b.left, y - 4, b.width, 3);
+
+  // Chevron markings
+  ctx.strokeStyle = 'rgba(255,200,0,0.6)';
+  ctx.lineWidth = 2;
+  for (let x = b.left + 10; x < b.right - 10; x += 25) {
+    ctx.beginPath();
+    ctx.moveTo(x, y + 2);
+    ctx.lineTo(x + 8, y - 3);
+    ctx.lineTo(x + 16, y + 2);
+    ctx.stroke();
+  }
+}
+
+function drawEnemy(e) {
+  const x = getLaneX(e.lane, e.yFrac);
+  const y = yFracToScreen(e.yFrac);
+  const sc = getScaleAtY(e.yFrac) * e.size;
+  const bob = Math.sin(e.animPhase) * 2;
+
+  ctx.save();
+  ctx.translate(x, y + bob);
+  ctx.scale(sc, sc);
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(0, 8, 10, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body
+  const bodyColor = e.flashTimer > 0 ? '#fff' : e.color;
+
+  if (e.isBoss) {
+    // Boss: larger, more detailed
+    ctx.fillStyle = bodyColor;
+    ctx.beginPath();
+    ctx.moveTo(-12, 5);
+    ctx.lineTo(-15, -5);
+    ctx.lineTo(-10, -18);
+    ctx.lineTo(0, -22);
+    ctx.lineTo(10, -18);
+    ctx.lineTo(15, -5);
+    ctx.lineTo(12, 5);
+    ctx.closePath();
+    ctx.fill();
+
+    // Boss horns
+    ctx.strokeStyle = '#ff0';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-8, -18);
+    ctx.lineTo(-14, -28);
+    ctx.moveTo(8, -18);
+    ctx.lineTo(14, -28);
+    ctx.stroke();
+
+    // Boss eyes
+    ctx.fillStyle = '#ff0';
+    ctx.fillRect(-6, -14, 4, 4);
+    ctx.fillRect(2, -14, 4, 4);
+
+    // Boss aura
+    ctx.strokeStyle = `rgba(255,0,68,${0.3 + Math.sin(Date.now() / 200) * 0.2})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, -8, 20, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    // Normal enemy body
+    ctx.fillStyle = bodyColor;
+    ctx.beginPath();
+    ctx.roundRect(-7, -15, 14, 20, 3);
+    ctx.fill();
+
+    // Head
+    ctx.beginPath();
+    ctx.arc(0, -17, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = e.type === 'ghost' ? '#fff' : '#200';
+    ctx.fillRect(-3, -19, 2, 2);
+    ctx.fillRect(1, -19, 2, 2);
+
+    // Arms (animated)
+    const armAngle = Math.sin(e.animPhase * 2) * 0.3;
+    ctx.strokeStyle = bodyColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-7, -8);
+    ctx.lineTo(-12, -3 + Math.sin(e.animPhase) * 4);
+    ctx.moveTo(7, -8);
+    ctx.lineTo(12, -3 - Math.sin(e.animPhase) * 4);
+    ctx.stroke();
+  }
+
+  // HP bar
+  const hpRatio = e.hp / e.maxHp;
+  const barW = e.isBoss ? 30 : 16;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(-barW / 2, -25 - (e.isBoss ? 10 : 0), barW, 3);
+  ctx.fillStyle = hpRatio > 0.5 ? '#4f4' : hpRatio > 0.25 ? '#ff0' : '#f44';
+  ctx.fillRect(-barW / 2, -25 - (e.isBoss ? 10 : 0), barW * hpRatio, 3);
+
+  ctx.restore();
+}
+
+function drawAlly(a) {
+  const x = getLaneX(a.lane, a.yFrac);
+  const y = yFracToScreen(a.yFrac);
+  const sc = getScaleAtY(a.yFrac);
+  const idle = Math.sin(a.animPhase) * 1.5;
+
+  ctx.save();
+  ctx.translate(x, y + idle);
+  ctx.scale(sc, sc);
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(0, 8, 8, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body
+  ctx.fillStyle = a.color;
+  ctx.beginPath();
+  ctx.roundRect(-6, -14, 12, 18, 3);
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#ffe0c0';
+  ctx.beginPath();
+  ctx.arc(0, -17, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Hat/helmet color
+  ctx.fillStyle = a.color;
+  ctx.beginPath();
+  ctx.arc(0, -19, 5, Math.PI, 0);
+  ctx.fill();
+
+  // Weapon indicator based on type
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.5;
+  if (a.type === 'archer') {
+    ctx.beginPath();
+    ctx.moveTo(8, -15);
+    ctx.lineTo(8, 0);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(10, -7, 8, 0.8, 2.3);
+    ctx.stroke();
+  } else if (a.type === 'mage') {
+    ctx.strokeStyle = '#ff88ff';
+    ctx.beginPath();
+    ctx.moveTo(7, -18);
+    ctx.lineTo(7, 2);
+    ctx.stroke();
+    // Staff orb
+    ctx.fillStyle = `hsl(${(Date.now() / 10) % 360}, 80%, 60%)`;
+    ctx.beginPath();
+    ctx.arc(7, -20, 3, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (a.type === 'tank') {
+    // Shield
+    ctx.fillStyle = 'rgba(68,136,255,0.5)';
+    ctx.beginPath();
+    ctx.moveTo(-10, -12);
+    ctx.lineTo(-10, 2);
+    ctx.lineTo(-5, 5);
+    ctx.lineTo(0, 2);
+    ctx.lineTo(0, -12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  } else if (a.type === 'hero') {
+    // Sword
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(8, -20);
+    ctx.lineTo(8, 3);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(4, -12);
+    ctx.lineTo(12, -12);
+    ctx.stroke();
+    // Glow
+    ctx.strokeStyle = `rgba(255,215,0,${0.3 + Math.sin(Date.now() / 300) * 0.2})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(0, -5, 14, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    // Infantry sword
+    ctx.beginPath();
+    ctx.moveTo(7, -14);
+    ctx.lineTo(7, 2);
+    ctx.stroke();
+  }
+
+  // HP bar
+  const hpRatio = a.hp / a.maxHp;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(-8, -26, 16, 3);
+  ctx.fillStyle = '#4f4';
+  ctx.fillRect(-8, -26, 16 * hpRatio, 3);
+
+  // Attack indicator (flash when attacking)
+  if (a.atkTimer > a.atkSpeed * 0.8) {
+    ctx.strokeStyle = `rgba(255,255,255,${(a.atkTimer - a.atkSpeed * 0.8) / (a.atkSpeed * 0.2)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, -5, 18, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function drawProjectile(p) {
+  // Trail
+  for (let i = 0; i < p.trail.length; i++) {
+    const t = p.trail[i];
+    const alpha = i / p.trail.length;
+    ctx.fillStyle = `rgba(${hexToRgb(p.color)},${alpha * 0.5})`;
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, 2 + alpha * 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Main projectile
+  ctx.fillStyle = p.color;
+  ctx.shadowColor = p.color;
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Beam line
+  if (p.trail.length > 0) {
+    ctx.strokeStyle = `rgba(${hexToRgb(p.color)},0.4)`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(p.trail[0].x, p.trail[0].y);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  }
+}
+
+function drawParticle(p) {
+  const alpha = p.life / p.maxLife;
+  ctx.fillStyle = `rgba(${hexToRgb(p.color)},${alpha})`;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawDmgNum(d) {
+  const alpha = Math.min(1, d.life / (d.maxLife * 0.3));
+  const s = d.scale * (1 + (1 - d.life / d.maxLife) * 0.5);
+  const size = d.isCrit ? 22 * s : 16 * s;
+
+  ctx.save();
+  ctx.translate(d.x, d.y);
+  ctx.scale(s, s);
+
+  // Outline
+  ctx.font = `900 ${size}px 'Helvetica Neue', Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.strokeStyle = `rgba(0,0,0,${alpha})`;
+  ctx.lineWidth = 4;
+  ctx.strokeText(d.amount.toString(), 0, 0);
+
+  // Fill
+  ctx.fillStyle = d.color;
+  ctx.globalAlpha = alpha;
+  ctx.fillText(d.amount.toString(), 0, 0);
+
+  if (d.isCrit) {
+    ctx.font = `bold ${size * 0.4}px 'Helvetica Neue', Arial`;
+    ctx.fillStyle = '#ff0';
+    ctx.fillText('CRITICAL!', 0, -size * 0.7);
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawShield() {
+  const yFrac = ROAD_BOTTOM_Y;
+  const b = getRoadBounds(yFrac);
+  const y = yFracToScreen(yFrac);
+  const alpha = 0.2 + Math.sin(Date.now() / 200) * 0.1;
+
+  ctx.fillStyle = `rgba(0,200,255,${alpha})`;
+  ctx.beginPath();
+  ctx.ellipse(b.cx, y - 30, b.width / 2, 40, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = `rgba(100,220,255,${alpha + 0.2})`;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+function drawEffect(e) {
+  const t = 1 - e.timer / e.maxTimer;
+  if (e.type === 'heal') {
+    // Green healing wave
+    ctx.fillStyle = `rgba(0,255,100,${(1 - t) * 0.15})`;
+    ctx.fillRect(0, 0, W, H);
+
+    // Plus signs
+    for (let i = 0; i < 8; i++) {
+      const ex = (i * W / 8) + W / 16;
+      const ey = H * 0.5 - t * 100;
+      const alpha = (1 - t);
+      ctx.fillStyle = `rgba(0,255,100,${alpha})`;
+      ctx.font = `bold ${20 + t * 10}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.fillText('+', ex, ey);
+    }
+  } else if (e.type === 'portal') {
+    ctx.fillStyle = `rgba(100,0,255,${(1 - t) * 0.2})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+function drawAnnouncement() {
+  const el = document.getElementById('waveAnnounce');
+  el.textContent = announceText;
+  el.style.opacity = announceAlpha;
+  el.style.transform = `translate(-50%,-50%) scale(${0.8 + announceAlpha * 0.4})`;
+}
+
+// ===== UTILITY =====
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  if (h.length === 3) {
+    return `${parseInt(h[0]+h[0],16)},${parseInt(h[1]+h[1],16)},${parseInt(h[2]+h[2],16)}`;
+  }
+  return `${parseInt(h.substr(0,2),16)},${parseInt(h.substr(2,2),16)},${parseInt(h.substr(4,2),16)}`;
+}
+
+// ===== UI UPDATE =====
+function updateUI() {
+  document.getElementById('waveInfo').textContent = `WAVE ${currentWave}/${totalWaves}`;
+  document.getElementById('goldInfo').textContent = `💰 ${gold}`;
+  document.getElementById('scoreInfo').textContent = `SCORE: ${score}`;
+  const hpPercent = Math.max(0, (baseHP / maxBaseHP) * 100);
+  document.getElementById('hpBar').style.width = hpPercent + '%';
+  if (hpPercent > 50) document.getElementById('hpBar').style.background = 'linear-gradient(90deg,#44ff44,#88ff44)';
+  else if (hpPercent > 25) document.getElementById('hpBar').style.background = 'linear-gradient(90deg,#ffaa00,#ffcc00)';
+  else document.getElementById('hpBar').style.background = 'linear-gradient(90deg,#ff4444,#ff6666)';
+}
+
+// ===== GAME LOOP =====
+function gameLoop(timestamp) {
+  dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+  lastTime = timestamp;
+
+  if (gameState === 'playing') {
+    update(dt);
+    draw();
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+
+// ===== GAME CONTROL =====
+function startGame() {
+  initAudio();
+  document.getElementById('startScreen').style.display = 'none';
+  resetGame();
+  gameState = 'playing';
+  buildUnitPanel();
+  updateItemUI();
+  updateUI();
+  waveDelay = 2;
+}
+
+function resetGame() {
+  gold = 100;
+  score = 0;
+  baseHP = 100;
+  maxBaseHP = 100;
+  currentWave = 0;
+  waveActive = false;
+  waveTimer = 0;
+  waveDelay = 3;
+  enemies = [];
+  allies = [];
+  projectiles = [];
+  particles = [];
+  damageNumbers = [];
+  effects = [];
+  spawnQueue = [];
+  selectedUnit = null;
+  items = { airstrike: 2, heal: 2, shield: 1, portal: 1 };
+  shieldActive = false;
+  upgrades = { atk: 0, hp: 0, speed: 0 };
+}
+
+function restartGame() {
+  document.getElementById('gameOverScreen').style.display = 'none';
+  document.getElementById('victoryScreen').style.display = 'none';
+  resetGame();
+  gameState = 'playing';
+  buildUnitPanel();
+  updateItemUI();
+  updateUI();
+  waveDelay = 2;
+}
+
+// roundRect polyfill
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+    if (typeof r === 'number') r = [r, r, r, r];
+    this.moveTo(x + r[0], y);
+    this.lineTo(x + w - r[1], y);
+    this.quadraticCurveTo(x + w, y, x + w, y + r[1]);
+    this.lineTo(x + w, y + h - r[2]);
+    this.quadraticCurveTo(x + w, y + h, x + w - r[2], y + h);
+    this.lineTo(x + r[3], y + h);
+    this.quadraticCurveTo(x, y + h, x, y + h - r[3]);
+    this.lineTo(x, y + r[0]);
+    this.quadraticCurveTo(x, y, x + r[0], y);
+    this.closePath();
+  };
+}
+
+// Start
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
