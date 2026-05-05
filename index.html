@@ -7,10 +7,12 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>ツイン・ロード・サバイバル：ラスト・ディフェンス</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
-html,body{width:100%;height:100%;overflow:hidden;background:#111;font-family:'Helvetica Neue',Arial,sans-serif;touch-action:none}
-#gameCanvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;z-index:0}
-#ui{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-user-select:none;user-select:none}
+button,.unit-btn,.item-btn,.upg-btn,#closeUpgrade{-webkit-touch-callout:none}
+html,body{width:100%;height:100%;overflow:hidden;background:#111;font-family:'Helvetica Neue',Arial,sans-serif}
+#gameCanvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;touch-action:none}
+#ui{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1}
+#startScreen button,#gameOverScreen button,#victoryScreen button{touch-action:manipulation;-webkit-tap-highlight-color:rgba(255,255,255,0.2)}
 #topBar{position:absolute;top:env(safe-area-inset-top,0);left:0;width:100%;display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:linear-gradient(180deg,rgba(0,0,0,0.85) 0%,rgba(0,0,0,0) 100%);z-index:10}
 #topBar>div{color:#fff;font-size:13px;font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8)}
 .gold-text{color:#ffd700!important}
@@ -66,10 +68,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#111;font-family:'He
 <div id="waveAnnounce"></div>
 
 <div id="itemPanel">
-<div class="item-btn" data-item="airstrike" ontouchstart="useItem('airstrike')">💥<div class="count" id="airCount">2</div></div>
-<div class="item-btn" data-item="heal" ontouchstart="useItem('heal')">💚<div class="count" id="healCount">2</div></div>
-<div class="item-btn" data-item="shield" ontouchstart="useItem('shield')">🛡<div class="count" id="shieldCount">1</div></div>
-<div class="item-btn" data-item="portal" ontouchstart="useItem('portal')">🌀<div class="count" id="portalCount">1</div></div>
+<div class="item-btn" data-item="airstrike">💥<div class="count" id="airCount">2</div></div>
+<div class="item-btn" data-item="heal">💚<div class="count" id="healCount">2</div></div>
+<div class="item-btn" data-item="shield">🛡<div class="count" id="shieldCount">1</div></div>
+<div class="item-btn" data-item="portal">🌀<div class="count" id="portalCount">1</div></div>
 </div>
 
 <div id="unitPanel"></div>
@@ -77,26 +79,26 @@ html,body{width:100%;height:100%;overflow:hidden;background:#111;font-family:'He
 <div id="upgradePanel">
 <h3>⬆ アップグレード</h3>
 <div id="upgradeList"></div>
-<div id="closeUpgrade" ontouchstart="closeUpgrade()">閉じる</div>
+<div id="closeUpgrade">閉じる</div>
 </div>
 
 <div id="startScreen">
 <h1>ツイン・ロード・サバイバル</h1>
 <h2>〜 ラスト・ディフェンス 〜</h2>
 <p>2つの道路を守り抜け！<br>兵士を配置して敵の大群を撃退せよ！<br><br>兵士を選んで道路をタップで配置<br>アイテムをタップして使用</p>
-<button ontouchstart="startGame()" onclick="startGame()">⚔ 出撃 ⚔</button>
+<button id="startBtn">⚔ 出撃 ⚔</button>
 </div>
 
 <div id="gameOverScreen">
 <h1>💀 防衛失敗 💀</h1>
 <div class="subtitle" id="goSubtitle">WAVE 3 で敗北</div>
-<button ontouchstart="restartGame()" onclick="restartGame()">再挑戦</button>
+<button id="retryBtn">再挑戦</button>
 </div>
 
 <div id="victoryScreen">
 <h1>🏆 勝利！ 🏆</h1>
 <div class="subtitle" id="vicSubtitle">全ウェーブクリア！</div>
-<button ontouchstart="restartGame()" onclick="restartGame()">もう一度</button>
+<button id="replayBtn">もう一度</button>
 </div>
 </div>
 
@@ -1394,4 +1396,6 @@ function drawNormalEnemy(e, isFlash, bob, walkCycle) {
 // ===== ALLY DRAWING =====
 function drawAlly(a) {
   const x = getLaneX(a.lane, a.yFrac);
-  const y = yFracToScreen(a.yF
+  const y = yFracToScreen(a.yFrac);
+  const sc = getScaleAtY(a.yFrac);
+  const idle = Math.sin(a.animP
