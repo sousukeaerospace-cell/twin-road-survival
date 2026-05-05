@@ -151,15 +151,15 @@ function resize() {
   buildRoadTexture();
   buildCityline();
 }
+// ===== OFFSCREEN CACHES (declared before resize() to avoid TDZ) =====
+let roadTexCanvas = null;
+let cityCanvas = null;
+
 window.addEventListener('resize', resize);
 if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
 resize();
 // Re-resize after layout stabilizes on iOS
 window.addEventListener('load', function() { setTimeout(resize, 100); });
-
-// ===== OFFSCREEN CACHES =====
-let roadTexCanvas = null;
-let cityCanvas = null;
 
 function buildRoadTexture() {
   // Create a small noise pattern for asphalt look
