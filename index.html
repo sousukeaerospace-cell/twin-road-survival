@@ -105,9 +105,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#111;font-family:'He
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 let W, H, scale;
-let gameState = 'start'; // start, playing, paused, gameover, victory
+let gameState = 'start';
 let lastTime = 0;
 let dt = 0;
+let gameTime = 0;
 
 // Audio context for SFX
 let audioCtx = null;
@@ -140,9 +141,59 @@ function resize() {
   canvas.style.height = H + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   scale = Math.min(W / 390, H / 844);
+  // Rebuild offscreen assets
+  buildRoadTexture();
+  buildCityline();
 }
 window.addEventListener('resize', resize);
 resize();
+
+// ===== OFFSCREEN CACHES =====
+let roadTexCanvas = null;
+let cityCanvas = null;
+
+function buildRoadTexture() {
+  // Create a small noise pattern for asphalt look
+  roadTexCanvas = document.createElement('canvas');
+  roadTexCanvas.width = 64;
+  roadTexCanvas.height = 64;
+  const rc = roadTexCanvas.getContext('2d');
+  rc.fillStyle = '#3a3a42';
+  rc.fillRect(0, 0, 64, 64);
+  for (let i = 0; i < 300; i++) {
+    const v = Math.random() * 20 | 0;
+    rc.fillStyle = `rgba(${50+v},${50+v},${55+v},0.5)`;
+    rc.fillRect(Math.random()*64|0, Math.random()*64|0, 1, 1);
+  }
+}
+
+function buildCityline() {
+  cityCanvas = document.createElement('canvas');
+  cityCanvas.width = W;
+  cityCanvas.height = H * 0.2;
+  const cc = cityCanvas.getContext('2d');
+
+  // Draw building silhouettes
+  const buildingCount = 18 + (W / 30 | 0);
+  for (let i = 0; i < buildingCount; i++) {
+    const bx = (i / buildingCount) * W - 10;
+    const bw = 12 + Math.random() * 30;
+    const bh = 20 + Math.random() * 80;
+    const shade = 15 + Math.random() * 20 | 0;
+    cc.fillStyle = `rgb(${shade},${shade},${shade + 8})`;
+    cc.fillRect(bx, cityCanvas.height - bh, bw, bh);
+
+    // Windows
+    cc.fillStyle = `rgba(255,200,80,${0.15 + Math.random()*0.3})`;
+    for (let wy = cityCanvas.height - bh + 4; wy < cityCanvas.height - 4; wy += 8) {
+      for (let wx = bx + 3; wx < bx + bw - 3; wx += 6) {
+        if (Math.random() > 0.4) {
+          cc.fillRect(wx, wy, 3, 4);
+        }
+      }
+    }
+  }
+}
 
 // ===== GAME STATE =====
 let gold = 100;
@@ -164,18 +215,18 @@ let projectiles = [];
 let particles = [];
 let damageNumbers = [];
 let effects = [];
+let beamFlashes = []; // muzzle/hit flashes
 let items = { airstrike: 2, heal: 2, shield: 1, portal: 1 };
 let activeItem = null;
 let shieldActive = false;
 let shieldTimer = 0;
 let upgrades = { atk: 0, hp: 0, speed: 0 };
 
-// ===== ISOMETRIC HELPERS =====
-// Road runs from top to bottom in 2.5D perspective
-const ROAD_TOP_Y = 0.12;      // fraction of H
-const ROAD_BOTTOM_Y = 0.78;   // fraction of H
-const ROAD_TOP_WIDTH = 0.35;   // narrow at top
-const ROAD_BOTTOM_WIDTH = 0.85; // wide at bottom
+// ===== ROAD PERSPECTIVE =====
+const ROAD_TOP_Y = 0.12;
+const ROAD_BOTTOM_Y = 0.78;
+const ROAD_TOP_WIDTH = 0.30;
+const ROAD_BOTTOM_WIDTH = 0.88;
 const LANE_COUNT = 2;
 
 function getRoadBounds(yFrac) {
@@ -203,21 +254,21 @@ function yFracToScreen(yFrac) {
 
 // ===== UNIT DEFINITIONS =====
 const UNIT_TYPES = {
-  infantry: { name: '歩兵', icon: '🗡', color: '#44ff44', cost: 15, hp: 80, atk: 12, range: 40, atkSpeed: 0.8, speed: 0 },
-  archer: { name: '射手', icon: '🏹', color: '#ffaa00', cost: 30, hp: 60, atk: 18, range: 180, atkSpeed: 1.2, speed: 0 },
-  mage: { name: '魔法', icon: '🔮', color: '#aa44ff', cost: 50, hp: 50, atk: 25, range: 150, atkSpeed: 1.8, speed: 0, aoe: 50 },
-  tank: { name: 'タンク', icon: '🛡', color: '#4488ff', cost: 40, hp: 200, atk: 8, range: 35, atkSpeed: 1.0, speed: 0 },
-  hero: { name: 'ヒーロー', icon: '⚔', color: '#ff4444', cost: 100, hp: 300, atk: 40, range: 60, atkSpeed: 0.7, speed: 0 }
+  infantry: { name: '歩兵', icon: '🗡', color: '#44aaff', cost: 15, hp: 80, atk: 12, range: 40, atkSpeed: 0.8, speed: 0 },
+  archer: { name: '射手', icon: '🏹', color: '#44ccff', cost: 30, hp: 60, atk: 18, range: 180, atkSpeed: 1.2, speed: 0 },
+  mage: { name: '魔法', icon: '🔮', color: '#8866ff', cost: 50, hp: 50, atk: 25, range: 150, atkSpeed: 1.8, speed: 0, aoe: 50 },
+  tank: { name: 'タンク', icon: '🛡', color: '#3388ff', cost: 40, hp: 200, atk: 8, range: 35, atkSpeed: 1.0, speed: 0 },
+  hero: { name: 'ヒーロー', icon: '⚔', color: '#ffaa22', cost: 100, hp: 300, atk: 40, range: 60, atkSpeed: 0.7, speed: 0 }
 };
 
 // ===== ENEMY DEFINITIONS =====
 const ENEMY_TYPES = {
-  zombie: { name: 'ゾンビ', color: '#88cc44', hp: 40, atk: 5, speed: 20, reward: 5, size: 1 },
-  runner: { name: 'ランナー', color: '#ffcc00', hp: 25, atk: 3, speed: 45, reward: 7, size: 0.8 },
-  brute: { name: 'ブルート', color: '#cc4444', hp: 100, atk: 12, speed: 12, reward: 12, size: 1.3 },
-  ghost: { name: 'ゴースト', color: '#aaaaff', hp: 55, atk: 8, speed: 28, reward: 10, size: 0.9 },
-  bomber: { name: 'ボマー', color: '#ff8800', hp: 35, atk: 20, speed: 22, reward: 8, size: 1.1 },
-  boss: { name: 'ボス', color: '#ff0044', hp: 800, atk: 25, speed: 8, reward: 100, size: 2.2, isBoss: true }
+  zombie: { name: 'ゾンビ', color: '#668844', hp: 40, atk: 5, speed: 20, reward: 5, size: 1 },
+  runner: { name: 'ランナー', color: '#998855', hp: 25, atk: 3, speed: 45, reward: 7, size: 0.8 },
+  brute: { name: 'ブルート', color: '#884433', hp: 100, atk: 12, speed: 12, reward: 12, size: 1.3 },
+  ghost: { name: 'ゴースト', color: '#7788aa', hp: 55, atk: 8, speed: 28, reward: 10, size: 0.9 },
+  bomber: { name: 'ボマー', color: '#886633', hp: 35, atk: 20, speed: 22, reward: 8, size: 1.1 },
+  boss: { name: 'ボス', color: '#cc2222', hp: 800, atk: 25, speed: 8, reward: 100, size: 2.2, isBoss: true }
 };
 
 // ===== WAVE DATA =====
@@ -247,7 +298,6 @@ function buildUnitPanel() {
     btn.addEventListener('click', (e) => { e.preventDefault(); selectUnit(key); });
     panel.appendChild(btn);
   }
-  // Upgrade button
   const ubtn = document.createElement('div');
   ubtn.className = 'unit-btn';
   ubtn.style.borderColor = 'rgba(0,229,255,0.5)';
@@ -293,7 +343,6 @@ function buyUpgrade(key, cost) {
   if (gold >= cost) {
     gold -= cost;
     upgrades[key]++;
-    // Apply to existing allies
     allies.forEach(a => applyUpgrades(a));
     showUpgradePanel();
     updateUI();
@@ -314,7 +363,6 @@ function useItem(type) {
   if (items[type] <= 0 || gameState !== 'playing') return;
 
   if (type === 'heal') {
-    // Instant: heal all allies and base
     baseHP = Math.min(maxBaseHP, baseHP + 30);
     allies.forEach(a => { a.hp = Math.min(a.maxHp, a.hp + a.maxHp * 0.4); });
     items.heal--;
@@ -326,7 +374,6 @@ function useItem(type) {
     items.shield--;
     playSfx(400, 0.3, 'triangle');
   } else if (type === 'airstrike') {
-    // Damage all enemies
     enemies.forEach(e => {
       const dmg = 60 + currentWave * 10;
       e.hp -= dmg;
@@ -337,7 +384,6 @@ function useItem(type) {
     screenShake(10, 0.5);
     playSfx(150, 0.4, 'sawtooth', 0.12);
   } else if (type === 'portal') {
-    // Push back all enemies
     enemies.forEach(e => { e.yFrac = Math.max(ROAD_TOP_Y, e.yFrac - 0.15); });
     items.portal--;
     spawnEffect('portal');
@@ -378,19 +424,15 @@ function handleInput(x, y) {
   const unit = UNIT_TYPES[selectedUnit];
   if (gold < unit.cost) return;
 
-  // Determine lane based on x position
   const lane = x < W / 2 ? 0 : 1;
 
-  // Determine y position - place near bottom area for defense
   let yFrac = y / H;
   yFrac = Math.max(ROAD_TOP_Y + 0.15, Math.min(ROAD_BOTTOM_Y - 0.05, yFrac));
 
-  // Check minimum distance from other allies
   const minDist = 25 * getScaleAtY(yFrac);
   const tooClose = allies.some(a => a.lane === lane && Math.abs(yFracToScreen(a.yFrac) - yFracToScreen(yFrac)) < minDist);
   if (tooClose) return;
 
-  // Place unit
   gold -= unit.cost;
   const ally = {
     type: selectedUnit,
@@ -409,7 +451,6 @@ function handleInput(x, y) {
   };
   allies.push(ally);
 
-  // Placement effect
   spawnExplosion(getLaneX(lane, yFrac), yFracToScreen(yFrac), unit.color);
   playSfx(500, 0.1, 'sine');
 
@@ -429,7 +470,6 @@ function startWave(waveIdx) {
       spawnQueue.push(eg.type);
     }
   }
-  // Shuffle
   for (let i = spawnQueue.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [spawnQueue[i], spawnQueue[j]] = [spawnQueue[j], spawnQueue[i]];
@@ -506,33 +546,42 @@ function screenShake(amount, duration) {
 // ===== PARTICLE SYSTEM =====
 function spawnDmgNum(x, y, amount, color, isCrit) {
   damageNumbers.push({
-    x: x + (Math.random() - 0.5) * 20,
-    y: y - 10,
+    x: x + (Math.random() - 0.5) * 30,
+    y: y - 15,
     amount: Math.floor(amount),
     color: color || '#fff',
     isCrit: isCrit || false,
-    life: 1.2,
-    maxLife: 1.2,
-    vy: -60,
-    scale: isCrit ? 2.0 : 1.0
+    life: 1.5,
+    maxLife: 1.5,
+    vy: -90,
+    scale: isCrit ? 2.5 : 1.2
   });
 }
 
 function spawnExplosion(x, y, color, count) {
-  const n = count || 12;
+  const n = count || 15;
   for (let i = 0; i < n; i++) {
     const angle = (Math.PI * 2 / n) * i + Math.random() * 0.5;
-    const speed = 40 + Math.random() * 80;
+    const speed = 50 + Math.random() * 120;
+    // Multi-color: base color + orange + yellow for explosion feel
+    const colors = [color, '#ff8800', '#ffcc00', '#ffffff'];
+    const c = colors[Math.floor(Math.random() * colors.length)];
     particles.push({
       x: x, y: y,
       vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed - 30,
-      color: color,
-      life: 0.5 + Math.random() * 0.4,
+      vy: Math.sin(angle) * speed - 40,
+      color: c,
+      life: 0.4 + Math.random() * 0.5,
       maxLife: 0.9,
-      size: 2 + Math.random() * 4
+      size: 2 + Math.random() * 5
     });
   }
+  // Shockwave ring
+  effects.push({ type: 'shockwave', x: x, y: y, timer: 0.4, maxTimer: 0.4, color: color });
+}
+
+function spawnBeamFlash(x, y, size) {
+  beamFlashes.push({ x, y, size: size || 12, life: 0.15, maxLife: 0.15 });
 }
 
 function spawnEffect(type) {
@@ -547,6 +596,7 @@ function fireProjectile(from, to, dmg, color, isAoe, aoeRadius) {
   const ty = yFracToScreen(to.yFrac);
   projectiles.push({
     x: fx, y: fy, tx: tx, ty: ty,
+    sx: fx, sy: fy, // start position for beam drawing
     target: to,
     dmg: dmg,
     color: color,
@@ -555,11 +605,14 @@ function fireProjectile(from, to, dmg, color, isAoe, aoeRadius) {
     aoeRadius: aoeRadius || 0,
     trail: []
   });
+  // Muzzle flash at origin
+  spawnBeamFlash(fx, fy - 10, 15);
 }
 
 // ===== UPDATE =====
 function update(dt) {
   if (gameState !== 'playing') return;
+  gameTime += dt;
 
   // Shield timer
   if (shieldActive) {
@@ -611,9 +664,7 @@ function update(dt) {
   if (waveActive && spawnQueue.length === 0 && enemies.length === 0) {
     waveActive = false;
     waveDelay = 3;
-    // Bonus gold between waves
     gold += 10 + currentWave * 5;
-    // Bonus items every 3 waves
     if (currentWave % 3 === 0) {
       items.airstrike++;
       items.heal++;
@@ -632,11 +683,9 @@ function update(dt) {
     e.animPhase += dt * 3;
     e.flashTimer = Math.max(0, e.flashTimer - dt);
 
-    // Move toward bottom
     const moveSpeed = e.speed * dt / H;
     e.yFrac += moveSpeed;
 
-    // Attack nearest ally in same lane
     const nearestAlly = findNearestAlly(e);
     if (nearestAlly && getDistY(e, nearestAlly) < 40 * getScaleAtY(e.yFrac)) {
       e.atkTimer -= dt;
@@ -644,12 +693,10 @@ function update(dt) {
         nearestAlly.hp -= e.atk;
         spawnDmgNum(getLaneX(nearestAlly.lane, nearestAlly.yFrac), yFracToScreen(nearestAlly.yFrac), e.atk, '#ff4444', false);
         e.atkTimer = 1.0;
-        // Stop moving when attacking
         e.yFrac -= moveSpeed;
       }
     }
 
-    // Reached base
     if (e.yFrac >= ROAD_BOTTOM_Y + 0.02) {
       const dmg = shieldActive ? e.atk * 0.3 : e.atk;
       baseHP -= dmg;
@@ -665,7 +712,6 @@ function update(dt) {
       continue;
     }
 
-    // Dead
     if (e.hp <= 0) {
       gold += e.reward;
       score += e.reward * 10;
@@ -684,7 +730,6 @@ function update(dt) {
     a.animPhase += dt * 2;
     a.atkTimer -= dt;
 
-    // Find target enemy
     const target = findNearestEnemy(a);
     if (target && a.atkTimer <= 0) {
       const dmg = a.atk;
@@ -692,20 +737,19 @@ function update(dt) {
       const finalDmg = isCrit ? dmg * 2 : dmg;
 
       if (a.range > 50) {
-        // Ranged: fire projectile
         fireProjectile(a, target, finalDmg, a.color, a.aoe > 0, a.aoe);
       } else {
-        // Melee: instant damage
         target.hp -= finalDmg;
         target.flashTimer = 0.1;
-        spawnDmgNum(getLaneX(target.lane, target.yFrac), yFracToScreen(target.yFrac), finalDmg, isCrit ? '#ff0' : '#fff', isCrit);
+        spawnDmgNum(getLaneX(target.lane, target.yFrac), yFracToScreen(target.yFrac), finalDmg, isCrit ? '#ffee00' : '#fff', isCrit);
         if (isCrit) playSfx(1000, 0.08, 'sine');
+        // Melee hit flash
+        spawnBeamFlash(getLaneX(target.lane, target.yFrac), yFracToScreen(target.yFrac) - 5, 10);
       }
       a.atkTimer = a.atkSpeed;
       playSfx(300 + Math.random() * 200, 0.05, 'square', 0.04);
     }
 
-    // Dead ally
     if (a.hp <= 0) {
       spawnExplosion(getLaneX(a.lane, a.yFrac), yFracToScreen(a.yFrac), '#888', 8);
       allies.splice(i, 1);
@@ -715,15 +759,21 @@ function update(dt) {
   // Update projectiles
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const p = projectiles[i];
+    // Update target position
+    if (p.target && enemies.includes(p.target)) {
+      p.tx = getLaneX(p.target.lane, p.target.yFrac);
+      p.ty = yFracToScreen(p.target.yFrac);
+    }
     const dx = p.tx - p.x;
     const dy = p.ty - p.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     p.trail.push({ x: p.x, y: p.y });
-    if (p.trail.length > 8) p.trail.shift();
+    if (p.trail.length > 10) p.trail.shift();
 
-    if (dist < 8) {
-      // Hit
+    if (dist < 10) {
+      // Hit flash
+      spawnBeamFlash(p.x, p.y, 18);
       if (p.isAoe) {
         enemies.forEach(e => {
           const ex = getLaneX(e.lane, e.yFrac);
@@ -734,17 +784,17 @@ function update(dt) {
             const dmg = isCrit ? p.dmg * 1.5 : p.dmg * 0.7;
             e.hp -= dmg;
             e.flashTimer = 0.1;
-            spawnDmgNum(ex, ey, dmg, isCrit ? '#ff0' : p.color, isCrit);
+            spawnDmgNum(ex, ey, dmg, isCrit ? '#ffee00' : p.color, isCrit);
           }
         });
-        spawnExplosion(p.x, p.y, p.color, 10);
+        spawnExplosion(p.x, p.y, p.color, 12);
       } else {
         if (p.target && enemies.includes(p.target)) {
           const isCrit = Math.random() < 0.15;
           const dmg = isCrit ? p.dmg * 2 : p.dmg;
           p.target.hp -= dmg;
           p.target.flashTimer = 0.1;
-          spawnDmgNum(p.tx, p.ty, dmg, isCrit ? '#ff0' : '#fff', isCrit);
+          spawnDmgNum(p.tx, p.ty, dmg, isCrit ? '#ffee00' : '#fff', isCrit);
           if (isCrit) playSfx(1000, 0.08, 'sine');
         }
       }
@@ -770,8 +820,9 @@ function update(dt) {
   for (let i = damageNumbers.length - 1; i >= 0; i--) {
     const d = damageNumbers[i];
     d.y += d.vy * dt;
-    d.vy *= 0.95;
+    d.vy *= 0.93;
     d.life -= dt;
+    d.scale *= 0.997;
     if (d.life <= 0) damageNumbers.splice(i, 1);
   }
 
@@ -781,13 +832,19 @@ function update(dt) {
     if (effects[i].timer <= 0) effects.splice(i, 1);
   }
 
+  // Update beam flashes
+  for (let i = beamFlashes.length - 1; i >= 0; i--) {
+    beamFlashes[i].life -= dt;
+    if (beamFlashes[i].life <= 0) beamFlashes.splice(i, 1);
+  }
+
   updateUI();
 }
 
 function findNearestEnemy(ally) {
   let best = null, bestDist = Infinity;
   for (const e of enemies) {
-    if (e.lane !== ally.lane && ally.range < 100) continue; // Melee only same lane
+    if (e.lane !== ally.lane && ally.range < 100) continue;
     const dy = Math.abs(yFracToScreen(e.yFrac) - yFracToScreen(ally.yFrac));
     const dx = Math.abs(getLaneX(e.lane, e.yFrac) - getLaneX(ally.lane, ally.yFrac));
     const d = Math.sqrt(dx * dx + dy * dy);
@@ -821,160 +878,225 @@ function draw() {
   ctx.save();
   ctx.translate(shakeX, shakeY);
 
-  // Sky gradient
-  const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
-  skyGrad.addColorStop(0, '#0a0a2a');
-  skyGrad.addColorStop(0.3, '#1a1035');
-  skyGrad.addColorStop(1, '#2a1520');
-  ctx.fillStyle = skyGrad;
-  ctx.fillRect(-20, -20, W + 40, H + 40);
-
-  // Stars
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  for (let i = 0; i < 30; i++) {
-    const sx = ((i * 137.5 + 50) % W);
-    const sy = ((i * 87.3 + 20) % (H * 0.3));
-    ctx.fillRect(sx, sy, 1.5, 1.5);
-  }
-
-  // Draw road (isometric perspective)
+  drawBackground();
   drawRoad();
-
-  // Draw base (defense line)
   drawBase();
 
-  // Draw shield effect
   if (shieldActive) drawShield();
 
-  // Draw enemies (sorted by yFrac for depth)
-  const sortedEnemies = [...enemies].sort((a, b) => a.yFrac - b.yFrac);
-  for (const e of sortedEnemies) drawEnemy(e);
+  // Sort all game entities by yFrac for proper depth
+  const allEntities = [];
+  for (const e of enemies) allEntities.push({ obj: e, yFrac: e.yFrac, type: 'enemy' });
+  for (const a of allies) allEntities.push({ obj: a, yFrac: a.yFrac, type: 'ally' });
+  allEntities.sort((a, b) => a.yFrac - b.yFrac);
 
-  // Draw allies (sorted by yFrac)
-  const sortedAllies = [...allies].sort((a, b) => a.yFrac - b.yFrac);
-  for (const a of sortedAllies) drawAlly(a);
+  for (const ent of allEntities) {
+    if (ent.type === 'enemy') drawEnemy(ent.obj);
+    else drawAlly(ent.obj);
+  }
 
-  // Draw projectiles
+  // Draw beams / projectiles
   for (const p of projectiles) drawProjectile(p);
 
-  // Draw particles
+  // Beam flashes (additive feel)
+  for (const f of beamFlashes) drawBeamFlash(f);
+
+  // Particles
   for (const p of particles) drawParticle(p);
 
-  // Draw damage numbers
+  // Damage numbers (on top of everything)
   for (const d of damageNumbers) drawDmgNum(d);
 
-  // Draw effects
+  // Effects
   for (const e of effects) drawEffect(e);
 
-  // Draw announcement
+  // Announcement
   if (announceTimer > 0) drawAnnouncement();
 
   ctx.restore();
 }
 
-function drawRoad() {
-  // Draw road surface with perspective
-  const steps = 40;
-  for (let i = 0; i < steps; i++) {
-    const t0 = i / steps;
-    const t1 = (i + 1) / steps;
-    const y0Frac = ROAD_TOP_Y + t0 * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
-    const y1Frac = ROAD_TOP_Y + t1 * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
-    const b0 = getRoadBounds(y0Frac);
-    const b1 = getRoadBounds(y1Frac);
-    const sy0 = yFracToScreen(y0Frac);
-    const sy1 = yFracToScreen(y1Frac);
+// ===== BACKGROUND =====
+function drawBackground() {
+  // Sky gradient - dark navy to slightly lighter
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, H * 0.5);
+  skyGrad.addColorStop(0, '#05071a');
+  skyGrad.addColorStop(0.4, '#0c1230');
+  skyGrad.addColorStop(0.7, '#151a3a');
+  skyGrad.addColorStop(1, '#1a1525');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(-20, -20, W + 40, H + 40);
 
-    // Road surface
-    const darkness = 0.3 + t0 * 0.15;
-    ctx.fillStyle = `rgb(${Math.floor(60 * darkness)},${Math.floor(62 * darkness)},${Math.floor(68 * darkness)})`;
+  // Stars
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  for (let i = 0; i < 40; i++) {
+    const sx = ((i * 137.5 + 50) % W);
+    const sy = ((i * 87.3 + 20) % (H * 0.15));
+    const sz = 0.5 + (i % 3) * 0.5;
     ctx.beginPath();
-    ctx.moveTo(b0.left, sy0);
-    ctx.lineTo(b0.right, sy0);
-    ctx.lineTo(b1.right, sy1);
-    ctx.lineTo(b1.left, sy1);
-    ctx.closePath();
+    ctx.arc(sx, sy, sz, 0, Math.PI * 2);
     ctx.fill();
-
-    // Road edges
-    ctx.strokeStyle = `rgba(255,200,50,${0.3 + t0 * 0.2})`;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(b0.left, sy0);
-    ctx.lineTo(b1.left, sy1);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(b0.right, sy0);
-    ctx.lineTo(b1.right, sy1);
-    ctx.stroke();
   }
 
-  // Center divider (dashed)
-  for (let i = 0; i < 20; i++) {
-    const t = i / 20;
-    const yFrac = ROAD_TOP_Y + t * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
-    if (i % 2 === 0) {
-      const b = getRoadBounds(yFrac);
-      const y = yFracToScreen(yFrac);
-      const nextYFrac = ROAD_TOP_Y + (t + 0.05) * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
-      const nextY = yFracToScreen(nextYFrac);
-      const bNext = getRoadBounds(nextYFrac);
-
-      ctx.strokeStyle = `rgba(255,255,255,${0.4 + t * 0.3})`;
-      ctx.lineWidth = 2 + t * 2;
-      ctx.beginPath();
-      ctx.moveTo(b.cx, y);
-      ctx.lineTo(bNext.cx, nextY);
-      ctx.stroke();
-    }
+  // City silhouette
+  if (cityCanvas) {
+    const cityY = H * ROAD_TOP_Y - cityCanvas.height * 0.5;
+    ctx.globalAlpha = 0.7;
+    ctx.drawImage(cityCanvas, 0, cityY);
+    ctx.globalAlpha = 1;
   }
 
-  // Lane markers (dashed white lines in each lane)
-  for (let lane = 0; lane < 2; lane++) {
-    for (let i = 0; i < 15; i++) {
-      const t = i / 15;
+  // Ambient haze at horizon
+  const hazeGrad = ctx.createLinearGradient(0, H * ROAD_TOP_Y - 30, 0, H * ROAD_TOP_Y + 20);
+  hazeGrad.addColorStop(0, 'rgba(20,15,40,0)');
+  hazeGrad.addColorStop(0.5, 'rgba(30,20,50,0.5)');
+  hazeGrad.addColorStop(1, 'rgba(20,15,30,0)');
+  ctx.fillStyle = hazeGrad;
+  ctx.fillRect(0, H * ROAD_TOP_Y - 30, W, 50);
+
+  // Ground on sides of road (dark earth/rubble)
+  const groundY = H * ROAD_TOP_Y;
+  const groundGrad = ctx.createLinearGradient(0, groundY, 0, H);
+  groundGrad.addColorStop(0, '#15120e');
+  groundGrad.addColorStop(1, '#1a1510');
+  ctx.fillStyle = groundGrad;
+  ctx.fillRect(0, groundY, W, H - groundY);
+}
+
+// ===== ROAD DRAWING =====
+function drawRoad() {
+  // Draw the road as a filled trapezoid
+  const topB = getRoadBounds(ROAD_TOP_Y);
+  const botB = getRoadBounds(ROAD_BOTTOM_Y);
+  const topY = yFracToScreen(ROAD_TOP_Y);
+  const botY = yFracToScreen(ROAD_BOTTOM_Y);
+
+  // Main road surface
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(topB.left, topY);
+  ctx.lineTo(topB.right, topY);
+  ctx.lineTo(botB.right, botY);
+  ctx.lineTo(botB.left, botY);
+  ctx.closePath();
+  ctx.clip();
+
+  // Asphalt base color gradient (darker at top, lighter at bottom)
+  const roadGrad = ctx.createLinearGradient(0, topY, 0, botY);
+  roadGrad.addColorStop(0, '#2a2a30');
+  roadGrad.addColorStop(0.5, '#353540');
+  roadGrad.addColorStop(1, '#404048');
+  ctx.fillStyle = roadGrad;
+  ctx.fillRect(0, topY, W, botY - topY);
+
+  // Asphalt texture overlay
+  if (roadTexCanvas) {
+    ctx.globalAlpha = 0.3;
+    const pat = ctx.createPattern(roadTexCanvas, 'repeat');
+    ctx.fillStyle = pat;
+    ctx.fillRect(0, topY, W, botY - topY);
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.restore();
+
+  // Road edge lines (white solid)
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+
+  // Left edge
+  ctx.beginPath();
+  const steps = 30;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const yF = ROAD_TOP_Y + t * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+    const b = getRoadBounds(yF);
+    const sy = yFracToScreen(yF);
+    if (i === 0) ctx.moveTo(b.left, sy);
+    else ctx.lineTo(b.left, sy);
+  }
+  ctx.stroke();
+
+  // Right edge
+  ctx.beginPath();
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const yF = ROAD_TOP_Y + t * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+    const b = getRoadBounds(yF);
+    const sy = yFracToScreen(yF);
+    if (i === 0) ctx.moveTo(b.right, sy);
+    else ctx.lineTo(b.right, sy);
+  }
+  ctx.stroke();
+
+  // Road shoulder stripes (yellow warning on outside edges)
+  ctx.lineWidth = 2;
+  for (let side = 0; side < 2; side++) {
+    for (let i = 0; i < 20; i++) {
       if (i % 2 !== 0) continue;
-      const yFrac = ROAD_TOP_Y + t * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
-      const nextT = (i + 1) / 15;
-      const nextYFrac = ROAD_TOP_Y + nextT * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+      const t0 = i / 20;
+      const t1 = (i + 1) / 20;
+      const yF0 = ROAD_TOP_Y + t0 * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+      const yF1 = ROAD_TOP_Y + t1 * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+      const b0 = getRoadBounds(yF0);
+      const b1 = getRoadBounds(yF1);
+      const sy0 = yFracToScreen(yF0);
+      const sy1 = yFracToScreen(yF1);
 
-      const x1 = getLaneX(lane, yFrac);
-      const x2 = getLaneX(lane, nextYFrac);
-      const y1 = yFracToScreen(yFrac);
-      const y2 = yFracToScreen(nextYFrac);
-
-      ctx.strokeStyle = `rgba(255,255,255,${0.1 + t * 0.15})`;
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 6]);
+      ctx.strokeStyle = `rgba(255,180,0,${0.3 + t0 * 0.3})`;
       ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
+      if (side === 0) {
+        ctx.moveTo(b0.left - 4, sy0);
+        ctx.lineTo(b1.left - 4, sy1);
+      } else {
+        ctx.moveTo(b0.right + 4, sy0);
+        ctx.lineTo(b1.right + 4, sy1);
+      }
       ctx.stroke();
-      ctx.setLineDash([]);
     }
   }
 
-  // Side scenery (buildings/barriers)
-  for (let i = 0; i < 8; i++) {
-    const t = i / 8;
-    const yFrac = ROAD_TOP_Y + t * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
-    const b = getRoadBounds(yFrac);
-    const sc = getScaleAtY(yFrac);
-    const y = yFracToScreen(yFrac);
+  // Center divider (white dashed line)
+  const dashCount = 25;
+  for (let i = 0; i < dashCount; i++) {
+    if (i % 2 !== 0) continue;
+    const t0 = i / dashCount;
+    const t1 = (i + 0.7) / dashCount;
+    const yF0 = ROAD_TOP_Y + t0 * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+    const yF1 = ROAD_TOP_Y + Math.min(1, t1) * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+    const b0 = getRoadBounds(yF0);
+    const b1 = getRoadBounds(yF1);
+    const sy0 = yFracToScreen(yF0);
+    const sy1 = yFracToScreen(yF1);
 
-    // Left barrier
-    ctx.fillStyle = `rgba(80,80,100,${0.5 + t * 0.3})`;
-    const bw = 15 * sc;
-    const bh = 20 * sc;
-    ctx.fillRect(b.left - bw - 5, y - bh, bw, bh);
-    ctx.fillStyle = `rgba(100,100,130,${0.3 + t * 0.2})`;
-    ctx.fillRect(b.left - bw - 5, y - bh, bw, 3);
+    const lineW = 2 + t0 * 3;
+    ctx.strokeStyle = `rgba(255,255,255,${0.5 + t0 * 0.4})`;
+    ctx.lineWidth = lineW;
+    ctx.beginPath();
+    ctx.moveTo(b0.cx, sy0);
+    ctx.lineTo(b1.cx, sy1);
+    ctx.stroke();
+  }
 
-    // Right barrier
-    ctx.fillStyle = `rgba(80,80,100,${0.5 + t * 0.3})`;
-    ctx.fillRect(b.right + 5, y - bh, bw, bh);
-    ctx.fillStyle = `rgba(100,100,130,${0.3 + t * 0.2})`;
-    ctx.fillRect(b.right + 5, y - bh, bw, 3);
+  // Rubble/debris on road sides
+  drawRoadDebris();
+}
+
+function drawRoadDebris() {
+  // Draw small rubble items along the road edges using deterministic random
+  for (let i = 0; i < 12; i++) {
+    const seed = i * 73.7;
+    const t = (seed % 100) / 100;
+    const side = i % 2;
+    const yF = ROAD_TOP_Y + t * (ROAD_BOTTOM_Y - ROAD_TOP_Y);
+    const b = getRoadBounds(yF);
+    const sc = getScaleAtY(yF);
+    const sy = yFracToScreen(yF);
+    const rx = side === 0 ? b.left - 8 * sc - (seed % 15) : b.right + 8 * sc + (seed % 15);
+
+    ctx.fillStyle = `rgba(${40 + (seed % 30)|0},${35 + (seed % 20)|0},${30 + (seed % 15)|0},0.8)`;
+    const sz = (3 + (seed % 8)) * sc;
+    ctx.fillRect(rx - sz / 2, sy - sz / 2, sz, sz * 0.7);
   }
 }
 
@@ -983,270 +1105,562 @@ function drawBase() {
   const b = getRoadBounds(yFrac);
   const y = yFracToScreen(yFrac);
 
-  // Defense line glow
-  const glow = ctx.createLinearGradient(b.left, y - 15, b.left, y + 15);
-  glow.addColorStop(0, 'rgba(0,150,255,0)');
-  glow.addColorStop(0.5, `rgba(0,150,255,${0.3 + Math.sin(Date.now() / 500) * 0.15})`);
-  glow.addColorStop(1, 'rgba(0,150,255,0)');
+  // Glowing defense line
+  const pulseA = 0.3 + Math.sin(gameTime * 3) * 0.15;
+  const glow = ctx.createLinearGradient(b.left, y - 20, b.left, y + 20);
+  glow.addColorStop(0, 'rgba(0,120,255,0)');
+  glow.addColorStop(0.3, `rgba(0,120,255,${pulseA * 0.5})`);
+  glow.addColorStop(0.5, `rgba(0,180,255,${pulseA})`);
+  glow.addColorStop(0.7, `rgba(0,120,255,${pulseA * 0.5})`);
+  glow.addColorStop(1, 'rgba(0,120,255,0)');
   ctx.fillStyle = glow;
-  ctx.fillRect(b.left, y - 15, b.width, 30);
+  ctx.fillRect(b.left - 10, y - 20, b.width + 20, 40);
 
-  // Defense wall
-  ctx.fillStyle = '#334';
-  ctx.fillRect(b.left, y - 4, b.width, 8);
-  ctx.fillStyle = '#556';
-  ctx.fillRect(b.left, y - 4, b.width, 3);
+  // Solid defense wall
+  const wallGrad = ctx.createLinearGradient(b.left, y - 5, b.left, y + 5);
+  wallGrad.addColorStop(0, '#556');
+  wallGrad.addColorStop(0.4, '#778');
+  wallGrad.addColorStop(1, '#445');
+  ctx.fillStyle = wallGrad;
+  ctx.fillRect(b.left, y - 5, b.width, 10);
 
   // Chevron markings
-  ctx.strokeStyle = 'rgba(255,200,0,0.6)';
+  ctx.strokeStyle = `rgba(255,200,0,${0.5 + Math.sin(gameTime * 2) * 0.2})`;
   ctx.lineWidth = 2;
-  for (let x = b.left + 10; x < b.right - 10; x += 25) {
+  for (let x = b.left + 15; x < b.right - 15; x += 25) {
     ctx.beginPath();
-    ctx.moveTo(x, y + 2);
+    ctx.moveTo(x, y + 3);
     ctx.lineTo(x + 8, y - 3);
-    ctx.lineTo(x + 16, y + 2);
+    ctx.lineTo(x + 16, y + 3);
     ctx.stroke();
   }
 }
 
+// ===== ENEMY DRAWING =====
 function drawEnemy(e) {
   const x = getLaneX(e.lane, e.yFrac);
   const y = yFracToScreen(e.yFrac);
   const sc = getScaleAtY(e.yFrac) * e.size;
-  const bob = Math.sin(e.animPhase) * 2;
+  const walkCycle = Math.sin(e.animPhase * 2);
+  const bob = Math.abs(walkCycle) * 2;
 
   ctx.save();
-  ctx.translate(x, y + bob);
+  ctx.translate(x, y);
   ctx.scale(sc, sc);
 
-  // Shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  // Ground shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
   ctx.beginPath();
-  ctx.ellipse(0, 8, 10, 4, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 6, e.isBoss ? 18 : 9, e.isBoss ? 6 : 3, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Body
-  const bodyColor = e.flashTimer > 0 ? '#fff' : e.color;
+  const isFlash = e.flashTimer > 0;
 
   if (e.isBoss) {
-    // Boss: larger, more detailed
-    ctx.fillStyle = bodyColor;
-    ctx.beginPath();
-    ctx.moveTo(-12, 5);
-    ctx.lineTo(-15, -5);
-    ctx.lineTo(-10, -18);
-    ctx.lineTo(0, -22);
-    ctx.lineTo(10, -18);
-    ctx.lineTo(15, -5);
-    ctx.lineTo(12, 5);
-    ctx.closePath();
-    ctx.fill();
-
-    // Boss horns
-    ctx.strokeStyle = '#ff0';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(-8, -18);
-    ctx.lineTo(-14, -28);
-    ctx.moveTo(8, -18);
-    ctx.lineTo(14, -28);
-    ctx.stroke();
-
-    // Boss eyes
-    ctx.fillStyle = '#ff0';
-    ctx.fillRect(-6, -14, 4, 4);
-    ctx.fillRect(2, -14, 4, 4);
-
-    // Boss aura
-    ctx.strokeStyle = `rgba(255,0,68,${0.3 + Math.sin(Date.now() / 200) * 0.2})`;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, -8, 20, 0, Math.PI * 2);
-    ctx.stroke();
+    drawBossEnemy(e, isFlash, bob);
   } else {
-    // Normal enemy body
-    ctx.fillStyle = bodyColor;
-    ctx.beginPath();
-    ctx.roundRect(-7, -15, 14, 20, 3);
-    ctx.fill();
-
-    // Head
-    ctx.beginPath();
-    ctx.arc(0, -17, 6, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Eyes
-    ctx.fillStyle = e.type === 'ghost' ? '#fff' : '#200';
-    ctx.fillRect(-3, -19, 2, 2);
-    ctx.fillRect(1, -19, 2, 2);
-
-    // Arms (animated)
-    const armAngle = Math.sin(e.animPhase * 2) * 0.3;
-    ctx.strokeStyle = bodyColor;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(-7, -8);
-    ctx.lineTo(-12, -3 + Math.sin(e.animPhase) * 4);
-    ctx.moveTo(7, -8);
-    ctx.lineTo(12, -3 - Math.sin(e.animPhase) * 4);
-    ctx.stroke();
+    drawNormalEnemy(e, isFlash, bob, walkCycle);
   }
 
   // HP bar
   const hpRatio = e.hp / e.maxHp;
-  const barW = e.isBoss ? 30 : 16;
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  ctx.fillRect(-barW / 2, -25 - (e.isBoss ? 10 : 0), barW, 3);
-  ctx.fillStyle = hpRatio > 0.5 ? '#4f4' : hpRatio > 0.25 ? '#ff0' : '#f44';
-  ctx.fillRect(-barW / 2, -25 - (e.isBoss ? 10 : 0), barW * hpRatio, 3);
+  const barW = e.isBoss ? 40 : 18;
+  const barY = e.isBoss ? -45 : -28;
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(-barW / 2 - 1, barY - 1, barW + 2, 5);
+  const hpColor = hpRatio > 0.5 ? '#44ff44' : hpRatio > 0.25 ? '#ffcc00' : '#ff3333';
+  ctx.fillStyle = hpColor;
+  ctx.fillRect(-barW / 2, barY, barW * hpRatio, 3);
+  // HP bar border
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(-barW / 2 - 1, barY - 1, barW + 2, 5);
 
   ctx.restore();
 }
 
+function drawBossEnemy(e, isFlash, bob) {
+  const bodyColor = isFlash ? '#fff' : e.color;
+  const t = gameTime;
+
+  ctx.translate(0, -bob);
+
+  // Aura glow (pulsating)
+  const auraR = 30 + Math.sin(t * 4) * 5;
+  const auraGrad = ctx.createRadialGradient(0, -15, 5, 0, -15, auraR);
+  auraGrad.addColorStop(0, 'rgba(255,30,30,0.3)');
+  auraGrad.addColorStop(0.5, 'rgba(255,60,0,0.15)');
+  auraGrad.addColorStop(1, 'rgba(255,0,0,0)');
+  ctx.fillStyle = auraGrad;
+  ctx.beginPath();
+  ctx.arc(0, -15, auraR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Legs
+  const legSwing = Math.sin(e.animPhase * 2) * 4;
+  ctx.fillStyle = darkenColor(bodyColor, 0.6);
+  ctx.fillRect(-8, -2, 5, 10);
+  ctx.fillRect(3, -2, 5, 10);
+
+  // Main body - armored torso
+  ctx.fillStyle = bodyColor;
+  ctx.beginPath();
+  ctx.moveTo(-14, 0);
+  ctx.lineTo(-16, -10);
+  ctx.lineTo(-12, -25);
+  ctx.lineTo(-6, -30);
+  ctx.lineTo(0, -32);
+  ctx.lineTo(6, -30);
+  ctx.lineTo(12, -25);
+  ctx.lineTo(16, -10);
+  ctx.lineTo(14, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // Body highlight
+  ctx.fillStyle = lightenColor(bodyColor, 0.3);
+  ctx.beginPath();
+  ctx.moveTo(-4, -30);
+  ctx.lineTo(0, -32);
+  ctx.lineTo(4, -30);
+  ctx.lineTo(4, -10);
+  ctx.lineTo(-4, -10);
+  ctx.closePath();
+  ctx.fill();
+
+  // Shoulder plates
+  ctx.fillStyle = darkenColor(bodyColor, 0.7);
+  ctx.beginPath();
+  ctx.ellipse(-14, -20, 7, 5, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(14, -20, 7, 5, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Arms
+  ctx.fillStyle = bodyColor;
+  const armSwing = Math.sin(e.animPhase) * 5;
+  ctx.fillRect(-20, -18 + armSwing, 5, 14);
+  ctx.fillRect(15, -18 - armSwing, 5, 14);
+
+  // Head
+  ctx.fillStyle = darkenColor(bodyColor, 0.8);
+  ctx.beginPath();
+  ctx.arc(0, -35, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Horns
+  ctx.strokeStyle = '#ffaa00';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(-6, -40);
+  ctx.quadraticCurveTo(-10, -52, -15, -50);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(6, -40);
+  ctx.quadraticCurveTo(10, -52, 15, -50);
+  ctx.stroke();
+
+  // Eyes (glowing)
+  ctx.fillStyle = '#ff2200';
+  ctx.shadowColor = '#ff0000';
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  ctx.ellipse(-4, -36, 2.5, 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(4, -36, 2.5, 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+}
+
+function drawNormalEnemy(e, isFlash, bob, walkCycle) {
+  const bodyColor = isFlash ? '#ffffff' : e.color;
+  const darkBody = isFlash ? '#dddddd' : darkenColor(e.color, 0.7);
+
+  ctx.translate(0, -bob);
+
+  // Legs (walk animation)
+  const legA = walkCycle * 4;
+  ctx.fillStyle = darkBody;
+  ctx.save();
+  ctx.translate(-3, 3);
+  ctx.rotate(legA * 0.05);
+  ctx.fillRect(-2, 0, 4, 8);
+  ctx.restore();
+  ctx.save();
+  ctx.translate(3, 3);
+  ctx.rotate(-legA * 0.05);
+  ctx.fillRect(-2, 0, 4, 8);
+  ctx.restore();
+
+  // Body (torso)
+  ctx.fillStyle = bodyColor;
+  ctx.beginPath();
+  ctx.moveTo(-7, 3);
+  ctx.lineTo(-8, -6);
+  ctx.lineTo(-6, -12);
+  ctx.lineTo(0, -14);
+  ctx.lineTo(6, -12);
+  ctx.lineTo(8, -6);
+  ctx.lineTo(7, 3);
+  ctx.closePath();
+  ctx.fill();
+
+  // Body shading
+  ctx.fillStyle = lightenColor(bodyColor, 0.2);
+  ctx.beginPath();
+  ctx.moveTo(-2, -14);
+  ctx.lineTo(2, -14);
+  ctx.lineTo(3, -4);
+  ctx.lineTo(-3, -4);
+  ctx.closePath();
+  ctx.fill();
+
+  // Arms (reaching forward animation)
+  ctx.fillStyle = bodyColor;
+  const armR = Math.sin(e.animPhase * 2) * 6;
+  ctx.save();
+  ctx.translate(-8, -8);
+  ctx.rotate(-0.3 + armR * 0.03);
+  ctx.fillRect(-2, 0, 3, 10);
+  ctx.restore();
+  ctx.save();
+  ctx.translate(8, -8);
+  ctx.rotate(0.3 - armR * 0.03);
+  ctx.fillRect(-1, 0, 3, 10);
+  ctx.restore();
+
+  // Head
+  ctx.fillStyle = bodyColor;
+  ctx.beginPath();
+  ctx.arc(0, -18, 5.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes
+  if (e.type === 'ghost') {
+    ctx.fillStyle = '#ddeeff';
+    ctx.shadowColor = '#aaccff';
+    ctx.shadowBlur = 4;
+  } else {
+    ctx.fillStyle = '#ffcc00';
+  }
+  ctx.beginPath();
+  ctx.ellipse(-2.5, -19, 1.5, 1.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(2.5, -19, 1.5, 1.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Ghost special: semi-transparent + wispy
+  if (e.type === 'ghost' && !isFlash) {
+    ctx.globalAlpha = 0.15;
+    ctx.fillStyle = '#aaccff';
+    ctx.beginPath();
+    ctx.ellipse(0, -5, 10, 15, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // Bomber: backpack
+  if (e.type === 'bomber') {
+    ctx.fillStyle = '#cc6600';
+    ctx.fillRect(-4, -10, 8, 8);
+    ctx.fillStyle = '#ff3300';
+    ctx.beginPath();
+    ctx.arc(0, -6, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ===== ALLY DRAWING =====
 function drawAlly(a) {
   const x = getLaneX(a.lane, a.yFrac);
   const y = yFracToScreen(a.yFrac);
   const sc = getScaleAtY(a.yFrac);
-  const idle = Math.sin(a.animPhase) * 1.5;
+  const idle = Math.sin(a.animPhase) * 1;
 
   ctx.save();
-  ctx.translate(x, y + idle);
+  ctx.translate(x, y);
   ctx.scale(sc, sc);
+  ctx.translate(0, -idle);
 
   // Shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.beginPath();
-  ctx.ellipse(0, 8, 8, 3, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 7, 8, 3, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Body
-  ctx.fillStyle = a.color;
+  const baseColor = a.color;
+  const darkColor = darkenColor(baseColor, 0.7);
+  const lightColor = lightenColor(baseColor, 0.3);
+  const isAttacking = a.atkTimer > a.atkSpeed * 0.7;
+
+  // Legs
+  ctx.fillStyle = darkColor;
+  ctx.fillRect(-4, 2, 3, 7);
+  ctx.fillRect(1, 2, 3, 7);
+
+  // Body (torso) - more detailed
+  ctx.fillStyle = baseColor;
   ctx.beginPath();
-  ctx.roundRect(-6, -14, 12, 18, 3);
+  ctx.moveTo(-7, 3);
+  ctx.lineTo(-7, -8);
+  ctx.lineTo(-5, -13);
+  ctx.lineTo(0, -14);
+  ctx.lineTo(5, -13);
+  ctx.lineTo(7, -8);
+  ctx.lineTo(7, 3);
+  ctx.closePath();
   ctx.fill();
+
+  // Torso highlight (center stripe)
+  ctx.fillStyle = lightColor;
+  ctx.beginPath();
+  ctx.moveTo(-2, -13);
+  ctx.lineTo(2, -13);
+  ctx.lineTo(2, 2);
+  ctx.lineTo(-2, 2);
+  ctx.closePath();
+  ctx.fill();
+
+  // Arms
+  ctx.fillStyle = baseColor;
+  const armAnim = isAttacking ? -8 : Math.sin(a.animPhase) * 3;
+  ctx.save();
+  ctx.translate(-7, -9);
+  ctx.rotate(-0.2 + armAnim * 0.02);
+  ctx.fillRect(-2, 0, 3, 9);
+  ctx.restore();
+  ctx.save();
+  ctx.translate(7, -9);
+  ctx.rotate(0.2 - armAnim * 0.02);
+  ctx.fillRect(-1, 0, 3, 9);
+  ctx.restore();
 
   // Head
   ctx.fillStyle = '#ffe0c0';
   ctx.beginPath();
-  ctx.arc(0, -17, 5, 0, Math.PI * 2);
+  ctx.arc(0, -18, 5, 0, Math.PI * 2);
   ctx.fill();
 
-  // Hat/helmet color
-  ctx.fillStyle = a.color;
+  // Helmet
+  ctx.fillStyle = baseColor;
   ctx.beginPath();
-  ctx.arc(0, -19, 5, Math.PI, 0);
+  ctx.arc(0, -20, 5.5, Math.PI, 0);
+  ctx.lineTo(5.5, -18);
+  ctx.lineTo(-5.5, -18);
+  ctx.closePath();
   ctx.fill();
 
-  // Weapon indicator based on type
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 1.5;
-  if (a.type === 'archer') {
-    ctx.beginPath();
-    ctx.moveTo(8, -15);
-    ctx.lineTo(8, 0);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(10, -7, 8, 0.8, 2.3);
-    ctx.stroke();
-  } else if (a.type === 'mage') {
-    ctx.strokeStyle = '#ff88ff';
-    ctx.beginPath();
-    ctx.moveTo(7, -18);
-    ctx.lineTo(7, 2);
-    ctx.stroke();
-    // Staff orb
-    ctx.fillStyle = `hsl(${(Date.now() / 10) % 360}, 80%, 60%)`;
-    ctx.beginPath();
-    ctx.arc(7, -20, 3, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (a.type === 'tank') {
-    // Shield
-    ctx.fillStyle = 'rgba(68,136,255,0.5)';
-    ctx.beginPath();
-    ctx.moveTo(-10, -12);
-    ctx.lineTo(-10, 2);
-    ctx.lineTo(-5, 5);
-    ctx.lineTo(0, 2);
-    ctx.lineTo(0, -12);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-  } else if (a.type === 'hero') {
-    // Sword
-    ctx.strokeStyle = '#ffd700';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(8, -20);
-    ctx.lineTo(8, 3);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(4, -12);
-    ctx.lineTo(12, -12);
-    ctx.stroke();
-    // Glow
-    ctx.strokeStyle = `rgba(255,215,0,${0.3 + Math.sin(Date.now() / 300) * 0.2})`;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(0, -5, 14, 0, Math.PI * 2);
-    ctx.stroke();
-  } else {
-    // Infantry sword
-    ctx.beginPath();
-    ctx.moveTo(7, -14);
-    ctx.lineTo(7, 2);
-    ctx.stroke();
-  }
+  // Face features
+  ctx.fillStyle = '#333';
+  ctx.fillRect(-2.5, -19, 1.5, 1.5);
+  ctx.fillRect(1, -19, 1.5, 1.5);
+
+  // Weapon based on type
+  drawAllyWeapon(a, isAttacking);
 
   // HP bar
   const hpRatio = a.hp / a.maxHp;
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  ctx.fillRect(-8, -26, 16, 3);
-  ctx.fillStyle = '#4f4';
-  ctx.fillRect(-8, -26, 16 * hpRatio, 3);
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(-9, -28, 18, 4);
+  ctx.fillStyle = hpRatio > 0.5 ? '#44ff66' : hpRatio > 0.25 ? '#ffcc00' : '#ff3333';
+  ctx.fillRect(-9, -28, 18 * hpRatio, 4);
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(-9, -28, 18, 4);
 
-  // Attack indicator (flash when attacking)
-  if (a.atkTimer > a.atkSpeed * 0.8) {
-    ctx.strokeStyle = `rgba(255,255,255,${(a.atkTimer - a.atkSpeed * 0.8) / (a.atkSpeed * 0.2)})`;
+  // Attack flash ring
+  if (isAttacking) {
+    const attackAlpha = (a.atkTimer - a.atkSpeed * 0.7) / (a.atkSpeed * 0.3);
+    ctx.strokeStyle = `rgba(255,255,255,${attackAlpha * 0.6})`;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(0, -5, 18, 0, Math.PI * 2);
+    ctx.arc(0, -5, 16 + (1 - attackAlpha) * 8, 0, Math.PI * 2);
     ctx.stroke();
   }
 
   ctx.restore();
 }
 
-function drawProjectile(p) {
-  // Trail
-  for (let i = 0; i < p.trail.length; i++) {
-    const t = p.trail[i];
-    const alpha = i / p.trail.length;
-    ctx.fillStyle = `rgba(${hexToRgb(p.color)},${alpha * 0.5})`;
-    ctx.beginPath();
-    ctx.arc(t.x, t.y, 2 + alpha * 2, 0, Math.PI * 2);
-    ctx.fill();
-  }
+function drawAllyWeapon(a, isAttacking) {
+  const atkFlash = isAttacking ? 1 : 0;
 
-  // Main projectile
-  ctx.fillStyle = p.color;
-  ctx.shadowColor = p.color;
-  ctx.shadowBlur = 10;
-  ctx.beginPath();
-  ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  // Beam line
-  if (p.trail.length > 0) {
-    ctx.strokeStyle = `rgba(${hexToRgb(p.color)},0.4)`;
+  if (a.type === 'archer') {
+    // Bow
+    ctx.strokeStyle = '#8B4513';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(p.trail[0].x, p.trail[0].y);
-    ctx.lineTo(p.x, p.y);
+    ctx.arc(9, -8, 10, -1.2, 1.2);
+    ctx.stroke();
+    // Bowstring
+    ctx.strokeStyle = '#ddd';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(9 + 10 * Math.cos(-1.2), -8 + 10 * Math.sin(-1.2));
+    ctx.lineTo(9 + 10 * Math.cos(1.2), -8 + 10 * Math.sin(1.2));
+    ctx.stroke();
+    // Arrow
+    if (atkFlash) {
+      ctx.strokeStyle = '#ffcc00';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(6, -8);
+      ctx.lineTo(20, -8);
+      ctx.stroke();
+    }
+  } else if (a.type === 'mage') {
+    // Staff
+    ctx.strokeStyle = '#6633aa';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(8, -22);
+    ctx.lineTo(8, 5);
+    ctx.stroke();
+    // Orb on staff (color cycling)
+    const orbHue = (gameTime * 60) % 360;
+    ctx.fillStyle = `hsl(${orbHue}, 80%, 60%)`;
+    ctx.shadowColor = `hsl(${orbHue}, 80%, 60%)`;
+    ctx.shadowBlur = atkFlash ? 12 : 6;
+    ctx.beginPath();
+    ctx.arc(8, -24, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  } else if (a.type === 'tank') {
+    // Large shield
+    ctx.fillStyle = 'rgba(50,100,200,0.6)';
+    ctx.strokeStyle = '#88aaff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-11, -14);
+    ctx.lineTo(-11, 4);
+    ctx.lineTo(-5, 7);
+    ctx.lineTo(1, 4);
+    ctx.lineTo(1, -14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Shield emblem
+    ctx.fillStyle = '#aaccff';
+    ctx.beginPath();
+    ctx.arc(-5, -5, 3, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (a.type === 'hero') {
+    // Big sword (glowing)
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(9, -24);
+    ctx.lineTo(9, 5);
+    ctx.stroke();
+    // Cross guard
+    ctx.beginPath();
+    ctx.moveTo(4, -12);
+    ctx.lineTo(14, -12);
+    ctx.stroke();
+    // Blade glow
+    ctx.strokeStyle = `rgba(255,215,0,${0.3 + Math.sin(gameTime * 5) * 0.2})`;
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(9, -24);
+    ctx.lineTo(9, 5);
+    ctx.stroke();
+    // Hero aura
+    ctx.strokeStyle = `rgba(255,200,50,${0.15 + Math.sin(gameTime * 3) * 0.1})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(0, -5, 16, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    // Infantry: simple sword
+    ctx.strokeStyle = '#ccc';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(8, -16);
+    ctx.lineTo(8, 4);
+    ctx.stroke();
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(5, -8);
+    ctx.lineTo(11, -8);
     ctx.stroke();
   }
 }
 
+// ===== PROJECTILE DRAWING =====
+function drawProjectile(p) {
+  const rgb = hexToRgb(p.color);
+
+  // Beam line from start to current position
+  if (p.trail.length > 1) {
+    // Outer glow beam
+    ctx.strokeStyle = `rgba(${rgb},0.15)`;
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.moveTo(p.trail[0].x, p.trail[0].y);
+    for (let i = 1; i < p.trail.length; i++) {
+      ctx.lineTo(p.trail[i].x, p.trail[i].y);
+    }
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+
+    // Inner beam
+    ctx.strokeStyle = `rgba(${rgb},0.5)`;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(p.trail[0].x, p.trail[0].y);
+    for (let i = 1; i < p.trail.length; i++) {
+      ctx.lineTo(p.trail[i].x, p.trail[i].y);
+    }
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+
+    // Core (white)
+    ctx.strokeStyle = `rgba(255,255,255,0.6)`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(p.trail[Math.max(0, p.trail.length - 4)].x, p.trail[Math.max(0, p.trail.length - 4)].y);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  }
+
+  // Projectile head (bright glow)
+  ctx.fillStyle = '#fff';
+  ctx.shadowColor = p.color;
+  ctx.shadowBlur = 12;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = p.color;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+}
+
+// ===== BEAM FLASH =====
+function drawBeamFlash(f) {
+  const alpha = f.life / f.maxLife;
+  const r = f.size * (1 + (1 - alpha) * 0.5);
+
+  ctx.globalAlpha = alpha;
+  const grad = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, r);
+  grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+  grad.addColorStop(0.3, 'rgba(255,255,200,0.5)');
+  grad.addColorStop(0.7, 'rgba(255,200,100,0.2)');
+  grad.addColorStop(1, 'rgba(255,150,50,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(f.x, f.y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+// ===== PARTICLE DRAWING =====
 function drawParticle(p) {
   const alpha = p.life / p.maxLife;
   ctx.fillStyle = `rgba(${hexToRgb(p.color)},${alpha})`;
@@ -1255,65 +1669,124 @@ function drawParticle(p) {
   ctx.fill();
 }
 
+// ===== DAMAGE NUMBERS (MAJOR VISUAL UPGRADE) =====
 function drawDmgNum(d) {
-  const alpha = Math.min(1, d.life / (d.maxLife * 0.3));
-  const s = d.scale * (1 + (1 - d.life / d.maxLife) * 0.5);
-  const size = d.isCrit ? 22 * s : 16 * s;
+  const lifeRatio = d.life / d.maxLife;
+  // Ease out alpha - stays visible longer then fades quickly at end
+  const alpha = lifeRatio < 0.3 ? lifeRatio / 0.3 : 1;
+  // Scale: starts big, slight pulse, then shrinks
+  const entryT = 1 - lifeRatio;
+  const s = d.scale * (entryT < 0.1 ? 0.5 + entryT * 5 : 1.0 - entryT * 0.15);
+  const baseSize = d.isCrit ? 48 : 32;
+  const size = baseSize * s;
 
   ctx.save();
   ctx.translate(d.x, d.y);
-  ctx.scale(s, s);
 
-  // Outline
-  ctx.font = `900 ${size}px 'Helvetica Neue', Arial`;
+  const text = d.amount.toString();
+
+  // Font setup - extra bold
+  ctx.font = `900 ${size}px 'Helvetica Neue', Impact, Arial`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+
+  // Glow (only for crits and large numbers to save perf)
+  if (d.isCrit || d.amount > 30) {
+    const glowColor = d.isCrit ? '#ffee00' : (d.color === '#fff' ? '#4488ff' : d.color);
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = d.isCrit ? 20 : 12;
+  }
+
+  // Black outline (thick)
   ctx.strokeStyle = `rgba(0,0,0,${alpha})`;
-  ctx.lineWidth = 4;
-  ctx.strokeText(d.amount.toString(), 0, 0);
+  ctx.lineWidth = size * 0.15;
+  ctx.lineJoin = 'round';
+  ctx.miterLimit = 2;
+  ctx.strokeText(text, 0, 0);
 
-  // Fill
-  ctx.fillStyle = d.color;
-  ctx.globalAlpha = alpha;
-  ctx.fillText(d.amount.toString(), 0, 0);
-
+  // Main fill
   if (d.isCrit) {
-    ctx.font = `bold ${size * 0.4}px 'Helvetica Neue', Arial`;
-    ctx.fillStyle = '#ff0';
-    ctx.fillText('CRITICAL!', 0, -size * 0.7);
+    // Gradient fill for crits: yellow -> white -> yellow
+    const critGrad = ctx.createLinearGradient(0, -size * 0.4, 0, size * 0.4);
+    critGrad.addColorStop(0, '#ffee00');
+    critGrad.addColorStop(0.5, '#ffffff');
+    critGrad.addColorStop(1, '#ffcc00');
+    ctx.fillStyle = critGrad;
+  } else if (d.color === '#ff4444') {
+    // Red damage
+    ctx.fillStyle = `rgba(255,80,80,${alpha})`;
+  } else {
+    // White damage
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+  }
+  ctx.globalAlpha = alpha;
+  ctx.fillText(text, 0, 0);
+
+  ctx.shadowBlur = 0;
+
+  // CRITICAL! text above
+  if (d.isCrit) {
+    ctx.font = `900 ${size * 0.35}px 'Helvetica Neue', Impact, Arial`;
+    ctx.strokeStyle = `rgba(0,0,0,${alpha})`;
+    ctx.lineWidth = 3;
+    ctx.strokeText('CRITICAL!', 0, -size * 0.65);
+    ctx.fillStyle = `rgba(255,50,50,${alpha})`;
+    ctx.fillText('CRITICAL!', 0, -size * 0.65);
   }
 
   ctx.globalAlpha = 1;
   ctx.restore();
 }
 
+// ===== SHIELD EFFECT =====
 function drawShield() {
   const yFrac = ROAD_BOTTOM_Y;
   const b = getRoadBounds(yFrac);
   const y = yFracToScreen(yFrac);
-  const alpha = 0.2 + Math.sin(Date.now() / 200) * 0.1;
+  const t = gameTime;
+  const alpha = 0.15 + Math.sin(t * 3) * 0.08;
 
-  ctx.fillStyle = `rgba(0,200,255,${alpha})`;
+  // Shield dome
+  const shieldGrad = ctx.createRadialGradient(b.cx, y - 25, 10, b.cx, y - 25, b.width * 0.6);
+  shieldGrad.addColorStop(0, `rgba(0,200,255,${alpha * 0.5})`);
+  shieldGrad.addColorStop(0.7, `rgba(0,150,255,${alpha})`);
+  shieldGrad.addColorStop(1, 'rgba(0,100,255,0)');
+  ctx.fillStyle = shieldGrad;
   ctx.beginPath();
-  ctx.ellipse(b.cx, y - 30, b.width / 2, 40, 0, 0, Math.PI * 2);
+  ctx.ellipse(b.cx, y - 25, b.width * 0.55, 50, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.strokeStyle = `rgba(100,220,255,${alpha + 0.2})`;
+  // Shield edge glow
+  ctx.strokeStyle = `rgba(100,220,255,${alpha + 0.15})`;
   ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(b.cx, y - 25, b.width * 0.55, 50, 0, 0, Math.PI * 2);
   ctx.stroke();
+
+  // Hexagonal pattern (subtle)
+  ctx.strokeStyle = `rgba(150,230,255,${alpha * 0.3})`;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI * 2 / 6) * i + t * 0.5;
+    const hr = 20;
+    const hx = b.cx + Math.cos(angle) * hr;
+    const hy = y - 25 + Math.sin(angle) * hr * 0.5;
+    ctx.beginPath();
+    ctx.arc(hx, hy, 8, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 }
 
+// ===== EFFECTS =====
 function drawEffect(e) {
   const t = 1 - e.timer / e.maxTimer;
-  if (e.type === 'heal') {
-    // Green healing wave
-    ctx.fillStyle = `rgba(0,255,100,${(1 - t) * 0.15})`;
-    ctx.fillRect(0, 0, W, H);
 
-    // Plus signs
+  if (e.type === 'heal') {
+    ctx.fillStyle = `rgba(0,255,100,${(1 - t) * 0.12})`;
+    ctx.fillRect(0, 0, W, H);
     for (let i = 0; i < 8; i++) {
       const ex = (i * W / 8) + W / 16;
-      const ey = H * 0.5 - t * 100;
+      const ey = H * 0.5 - t * 120;
       const alpha = (1 - t);
       ctx.fillStyle = `rgba(0,255,100,${alpha})`;
       ctx.font = `bold ${20 + t * 10}px Arial`;
@@ -1321,8 +1794,22 @@ function drawEffect(e) {
       ctx.fillText('+', ex, ey);
     }
   } else if (e.type === 'portal') {
-    ctx.fillStyle = `rgba(100,0,255,${(1 - t) * 0.2})`;
+    ctx.fillStyle = `rgba(100,0,255,${(1 - t) * 0.15})`;
     ctx.fillRect(0, 0, W, H);
+  } else if (e.type === 'shockwave') {
+    const radius = t * 60;
+    const alpha = (1 - t) * 0.5;
+    ctx.strokeStyle = `rgba(${hexToRgb(e.color)},${alpha})`;
+    ctx.lineWidth = 3 * (1 - t);
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+    // Inner white ring
+    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.5})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, radius * 0.7, 0, Math.PI * 2);
+    ctx.stroke();
   }
 }
 
@@ -1333,13 +1820,29 @@ function drawAnnouncement() {
   el.style.transform = `translate(-50%,-50%) scale(${0.8 + announceAlpha * 0.4})`;
 }
 
-// ===== UTILITY =====
+// ===== COLOR UTILITY =====
 function hexToRgb(hex) {
   const h = hex.replace('#', '');
   if (h.length === 3) {
     return `${parseInt(h[0]+h[0],16)},${parseInt(h[1]+h[1],16)},${parseInt(h[2]+h[2],16)}`;
   }
   return `${parseInt(h.substr(0,2),16)},${parseInt(h.substr(2,2),16)},${parseInt(h.substr(4,2),16)}`;
+}
+
+function darkenColor(hex, factor) {
+  const h = hex.replace('#', '');
+  const r = Math.floor(parseInt(h.substr(0,2), 16) * factor);
+  const g = Math.floor(parseInt(h.substr(2,2), 16) * factor);
+  const b = Math.floor(parseInt(h.substr(4,2), 16) * factor);
+  return `rgb(${r},${g},${b})`;
+}
+
+function lightenColor(hex, factor) {
+  const h = hex.replace('#', '');
+  const r = Math.min(255, Math.floor(parseInt(h.substr(0,2), 16) * (1 + factor)));
+  const g = Math.min(255, Math.floor(parseInt(h.substr(2,2), 16) * (1 + factor)));
+  const b = Math.min(255, Math.floor(parseInt(h.substr(4,2), 16) * (1 + factor)));
+  return `rgb(${r},${g},${b})`;
 }
 
 // ===== UI UPDATE =====
@@ -1394,11 +1897,13 @@ function resetGame() {
   particles = [];
   damageNumbers = [];
   effects = [];
+  beamFlashes = [];
   spawnQueue = [];
   selectedUnit = null;
   items = { airstrike: 2, heal: 2, shield: 1, portal: 1 };
   shieldActive = false;
   upgrades = { atk: 0, hp: 0, speed: 0 };
+  gameTime = 0;
 }
 
 function restartGame() {
